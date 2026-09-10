@@ -95,13 +95,17 @@ svg {
   gap: 12px;
   align-items: center;
 }
-.brand > svg {
-  background: #1756bd;
-  color: white;
-  width: 38px;
-  height: 38px;
-  padding: 8px;
-  border-radius: 10px;
+.company-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.quotation-logo {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  margin-bottom: 16px;
 }
 .brand > span {
   font-size: 14px;

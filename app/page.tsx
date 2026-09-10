@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import {
   useCallback,
   useEffect,
@@ -8,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Gift,
   FileText,
   Package,
   Sparkles,
@@ -467,7 +467,15 @@ export default function Home() {
       <Toaster richColors />
       <header className="topbar">
         <div className="brand">
-          <Gift />
+          <Image
+            className="company-logo"
+            src="/mais-logo.png"
+            alt="Mais company logo"
+            width={72}
+            height={72}
+            unoptimized
+            priority
+          />
           <strong>Cloud ERP</strong>
           <span>Corporate gifting</span>
         </div>
@@ -990,6 +998,14 @@ export default function Home() {
               <div className="print-document">
                 <div className="document-heading">
                   <div>
+                    <Image
+                      className="quotation-logo"
+                      src="/mais-logo.png"
+                      alt="Mais company logo"
+                      width={100}
+                      height={100}
+                      unoptimized
+                    />
                     <p className="eyebrow">{data.settings.company}</p>
                     <h2>Quotation Q-{String(view.number).padStart(4, "0")}</h2>
                     <span className="badge">{view.status}</span>

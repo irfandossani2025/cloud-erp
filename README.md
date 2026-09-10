@@ -71,4 +71,4 @@ AI suggestions and mockups require human review. Logo details may be altered by 
 
 A progressive WebMCP catalogue search tool is registered only in browsers that support it. The optional WebMCP tool and visual browser interactions have not been browser-tested in this build.
 
-The company logo attachment was not available in the task/workspace during this implementation. A temporary gift icon is used until that file is supplied.
+The supplied Mais logo is used in the app header, browser icon, and printable quotations. Its original PNG is preserved in `public/mais-logo.png`.
