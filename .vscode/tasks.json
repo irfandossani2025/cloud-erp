@@ -1,0 +1,1 @@
+{"version":"2.0.0","tasks":[{"label":"Run Cloud ERP locally","type":"shell","command":"npm run dev -- --hostname 127.0.0.1","isBackground":true,"problemMatcher":[]},{"label":"Build Cloud ERP","type":"shell","command":"npm run build","group":"build","problemMatcher":[]},{"label":"Check types","type":"shell","command":"npm run typecheck","problemMatcher":[]}]}
