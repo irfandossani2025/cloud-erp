@@ -1,0 +1,1775 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import {
+  FileText,
+  Package,
+  Sparkles,
+  Plus,
+  Search,
+  RefreshCw,
+  Settings,
+  Trash2,
+  ArrowLeft,
+  Check,
+  ImageIcon,
+  Download,
+  Printer,
+  Users,
+  LogOut,
+} from "lucide-react";
+import { request } from "./http";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHead,
+} from "@/components/ui/table";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty";
+import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
+import {
+  money,
+  convertedCost,
+  DEFAULT_AED_OMR_RATE,
+  type Product,
+  type Quote,
+  type Line,
+} from "@/lib/domain";
+type Agent = { id: string; name: string };
+type State = {
+  products: Product[];
+  quotes: Quote[];
+  agents: Agent[];
+  settings: { company: string; rate: number; updated: string | null };
+  supplierConfigured: boolean;
+  aiConfigured: boolean;
+  isAdmin: boolean;
+  userName: string;
+};
+type Draft = {
+  id?: string;
+  revision?: number;
+  agent: string;
+  customer: string;
+  email: string;
+  notes: string;
+  rate: number;
+  lines: Line[];
+};
+type Mockup = {
+  id: string;
+  productName: string;
+  path: string;
+  created?: string;
+};
+const initial: State = {
+  products: [],
+  quotes: [],
+  agents: [],
+  settings: { company: "Cloud ERP", rate: DEFAULT_AED_OMR_RATE, updated: null },
+  supplierConfigured: false,
+  aiConfigured: false,
+  isAdmin: false,
+  userName: "",
+};
+async function api(action: string, payload: object = {}) {
+  const r = await request("/api/erp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = (await r.json()) as {
+    id: string;
+    count: number;
+    error?: string;
+  };
+  if (!r.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+function Choice({
+  value,
+  onChange,
+  placeholder,
+  items,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  items: { id: string; name: string }[];
+  disabled?: boolean;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className="choice" aria-label={placeholder}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((i) => (
+          <SelectItem key={i.id} value={i.id}>
+            {i.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+const csrfToken = () =>
+  document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+    ?.content || "";
+function Blank({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Empty className="empty">
+      <EmptyHeader>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{children}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+export default function Home() {
+  const [data, setData] = useState<State>(initial),
+    [loaded, setLoaded] = useState(false),
+    [loadError, setLoadError] = useState(""),
+    [tab, setTab] = useState("quotations"),
+    [agent, setAgent] = useState(""),
+    [busy, setBusy] = useState("");
+  const [draft, setDraft] = useState<Draft | null>(null),
+    [view, setView] = useState<Quote | null>(null),
+    [search, setSearch] = useState(""),
+    [filter, setFilter] = useState("all"),
+    [page, setPage] = useState(0),
+    [productDialog, setProductDialog] = useState(false),
+    [editProduct, setEditProduct] = useState<Product | null>(null),
+    [addToDraft, setAddToDraft] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState(""),
+    [aiResult, setAiResult] = useState<{
+      message: string;
+      lines: { productId: string; quantity: number; branding: string }[];
+    } | null>(null);
+  const [studioProduct, setStudioProduct] = useState(""),
+    [mockups, setMockups] = useState<Mockup[]>([]);
+  const refresh = useCallback(async () => {
+    try {
+      const r = await request("/api/erp");
+      const d = (await r.json()) as State & { error?: string };
+      if (!r.ok) throw new Error(d.error || "Could not load the workspace");
+      setData(d);
+      setAgent((a) => a || d.agents[0]?.id || "");
+      setLoadError("");
+      setLoaded(true);
+      return d as State;
+    } catch (e) {
+      setLoadError(
+        e instanceof Error ? e.message : "Could not load the workspace",
+      );
+      throw e;
+    }
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    request("/api/erp", { signal: controller.signal })
+      .then(async (r) => {
+        const d = (await r.json()) as State & { error?: string };
+        if (!r.ok) throw new Error(d.error || "Could not load the workspace");
+        return d;
+      })
+      .then((d) => {
+        setData(d);
+        setAgent((a) => a || d.agents[0]?.id || "");
+        setLoaded(true);
+        setLoadError("");
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") setLoadError(e.message);
+      });
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (!agent) return;
+    const controller = new AbortController();
+    request("/api/mockups?agent=" + encodeURIComponent(agent), {
+      signal: controller.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error("Could not load saved mockups");
+        return r.json() as Promise<Mockup[]>;
+      })
+      .then(setMockups)
+      .catch((e) => {
+        if (e.name !== "AbortError") toast.error(e.message);
+      });
+    return () => controller.abort();
+  }, [agent]);
+  useEffect(() => {
+    const context = (
+      document as Document & {
+        modelContext?: {
+          registerTool: (tool: unknown, options: unknown) => Promise<void>;
+        };
+      }
+    ).modelContext;
+    if (!context) return;
+    const controller = new AbortController();
+    Promise.resolve(
+      context.registerTool(
+        {
+          name: "search_gift_products",
+          description:
+            "Search the loaded product catalogue and read separate warehouse and supplier stock quantities.",
+          inputSchema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+          annotations: { readOnlyHint: true, untrustedContentHint: true },
+          execute: (input: unknown) => {
+            if (
+              !input ||
+              typeof input !== "object" ||
+              !("query" in input) ||
+              typeof input.query !== "string"
+            )
+              throw new Error("A text query is required");
+            const query = input.query.toLowerCase();
+            return data.products
+              .filter((p) =>
+                (p.name + " " + p.sku + " " + p.category)
+                  .toLowerCase()
+                  .includes(query),
+              )
+              .slice(0, 50)
+              .map((p) => ({
+                id: p.id,
+                name: p.name,
+                sku: p.sku,
+                warehouseStock: p.warehouse_stock,
+                supplierStock: p.supplier_stock,
+              }));
+          },
+        },
+        { signal: controller.signal },
+      ),
+    ).catch(() => {});
+    return () => controller.abort();
+  }, [data.products]);
+  async function perform(label: string, work: () => Promise<void>) {
+    if (busy) return;
+    setBusy(label);
+    try {
+      await work();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy("");
+    }
+  }
+  const filtered = useMemo(
+    () =>
+      data.products.filter(
+        (p) =>
+          (p.name + " " + p.sku + " " + p.category)
+            .toLowerCase()
+            .includes(search.toLowerCase()) &&
+          (tab === "quotations" ||
+            filter === "all" ||
+            (filter === "warehouse" ? p.warehouse_stock > 0 : !!p.supplier_id)),
+      ),
+    [data.products, search, filter, tab],
+  );
+  const quoteList = data.quotes.filter((q) => q.agent === agent);
+  const selectedProduct = data.products.find((p) => p.id === studioProduct);
+  function startDraft() {
+    if (!agent) {
+      setTab("settings");
+      toast.info("Add a sales agent to create quotations.");
+      return;
+    }
+    setDraft({
+      agent,
+      customer: "",
+      email: "",
+      notes: "",
+      rate: data.settings.rate,
+      lines: [],
+    });
+    setView(null);
+    setAiResult(null);
+    setSearch("");
+    setFilter("all");
+    setPage(0);
+    setTab("quotations");
+  }
+  function addProduct(p: Product, quantity = 1, branding = "") {
+    setDraft((d) => {
+      if (!d) return d;
+      const i = d.lines.findIndex(
+        (l) => l.productId === p.id && l.branding === branding,
+      );
+      if (i >= 0)
+        return {
+          ...d,
+          lines: d.lines.map((l, j) =>
+            j === i ? { ...l, quantity: l.quantity + quantity } : l,
+          ),
+        };
+      return {
+        ...d,
+        lines: [
+          ...d.lines,
+          {
+            productId: p.id,
+            name: p.name,
+            sku: p.sku,
+            quantity,
+            branding,
+            unitBaisa: p.sale_baisa ?? 0,
+            costBaisa: convertedCost(p, d.rate),
+          },
+        ],
+      };
+    });
+  }
+  function updateLine(i: number, changes: Partial<Line>) {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            lines: d.lines.map((l, j) => (j === i ? { ...l, ...changes } : l)),
+          }
+        : d,
+    );
+  }
+  async function saveProduct(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    await perform("product", async () => {
+      if (editProduct) {
+        await api("stock", {
+          id: editProduct.id,
+          warehouseStock: Number(f.get("warehouse")),
+          saleBaisa:
+            f.get("sale") === ""
+              ? null
+              : Math.round(Number(f.get("sale")) * 1000),
+        });
+        await refresh();
+        toast.success("Inventory updated");
+      } else {
+        const r = await api("product", {
+          product: {
+            name: String(f.get("name")),
+            sku: String(f.get("sku")),
+            description: String(f.get("description")),
+            category: String(f.get("category")),
+            image: String(f.get("image")),
+            warehouseStock: Number(f.get("warehouse")),
+            costBaisa: Math.round(Number(f.get("cost")) * 1000),
+            saleBaisa:
+              f.get("sale") === ""
+                ? null
+                : Math.round(Number(f.get("sale")) * 1000),
+          },
+        });
+        const d = await refresh();
+        if (addToDraft) {
+          const p = d.products.find((p) => p.id === r.id);
+          if (p) addProduct(p);
+        }
+        toast.success(
+          addToDraft
+            ? "Product created and added to quotation"
+            : "Product created",
+        );
+      }
+      setProductDialog(false);
+      setEditProduct(null);
+    });
+  }
+  async function saveDraft() {
+    if (!draft) return;
+    await perform("save", async () => {
+      const r = await api("quote", { quote: draft });
+      const d = await refresh();
+      setView(d.quotes.find((q) => q.id === r.id) || null);
+      setDraft(null);
+      toast.success("Quotation saved");
+    });
+  }
+  async function generateDraft() {
+    if (!draft) return;
+    await perform("ai", async () => {
+      const r = await request("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent: draft.agent,
+          prompt: aiPrompt,
+          rate: draft.rate,
+        }),
+      });
+      const d = (await r.json()) as {
+        message: string;
+        lines: { productId: string; quantity: number; branding: string }[];
+        error?: string;
+      };
+      if (!r.ok) throw new Error(d.error);
+      setAiResult(d);
+    });
+  }
+  async function generateMockup(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const payload = new FormData(e.currentTarget);
+    payload.set("agent", agent);
+    payload.set("productId", studioProduct);
+    await perform("mockup", async () => {
+      const r = await request("/api/mockups", { method: "POST", body: payload });
+      const d = (await r.json()) as Mockup & { error?: string };
+      if (!r.ok) throw new Error(d.error);
+      setMockups((m) => [d, ...m]);
+      toast.success("Mockup saved");
+    });
+  }
+  const total = draft
+    ? draft.lines.reduce((n, l) => n + l.quantity * l.unitBaisa, 0)
+    : 0;
+  return (
+    <main className="workspace">
+      <Toaster richColors />
+      <header className="topbar">
+        <div className="brand">
+          <img
+            className="company-logo"
+            src="/mais-logo.png"
+            alt="Mais company logo"
+            width={72}
+            height={72}
+          />
+          <strong>Cloud ERP</strong>
+          <span>Corporate gifting</span>
+        </div>
+        <div className="actions">
+          <span className="badge">Oman workspace</span>
+          {data.isAdmin ? (
+            <Choice
+              value={agent}
+              onChange={(a) => {
+                if (draft) {
+                  toast.info(
+                    "Save or close your quotation before switching agents.",
+                  );
+                  return;
+                }
+                setAgent(a);
+                setMockups([]);
+                setView(null);
+              }}
+              placeholder="Sales agent"
+              disabled={!!busy}
+              items={data.agents}
+            />
+          ) : (
+            agent && (
+              <span className="badge">
+                {data.agents.find((a) => a.id === agent)?.name}
+              </span>
+            )
+          )}
+          <div className="user-menu">
+            <span className="user-name">{data.userName}</span>
+            <form method="post" action="/logout">
+              <input type="hidden" name="_token" value={csrfToken()} />
+              <button className="icon-button" type="submit" aria-label="Sign out">
+                <LogOut size={17} />
+              </button>
+            </form>
+          </div>
+        </div>
+      </header>
+      <section className="heading">
+        <div>
+          <p className="eyebrow">SALES WORKSPACE</p>
+          <h1>
+            {draft
+              ? "Build a thoughtful quotation."
+              : tab === "studio"
+                ? "Make the gift their own."
+                : tab === "inventory"
+                  ? "Every product. One place."
+                  : tab === "settings"
+                    ? "Your workspace, your way."
+                    : "Every great gift starts here."}
+          </h1>
+          <p>
+            {tab === "studio"
+              ? "Turn a product photograph and a customer logo into a branded preview."
+              : "Products, availability and quotations. Together in one workspace."}
+          </p>
+        </div>
+        <button
+          className="primary"
+          onClick={startDraft}
+          disabled={!!draft || !loaded}
+        >
+          <Plus size={18} /> New quotation
+        </button>
+      </section>
+      {loadError && (
+        <div role="alert" className="notice error">
+          {loadError}
+          <button
+            className="secondary"
+            onClick={() => void refresh().catch(() => {})}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {!loaded && !loadError && <p role="status">Loading your workspace…</p>}
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v);
+          setPage(0);
+        }}
+      >
+        <TabsList className="navigation">
+          <TabsTrigger value="quotations">
+            <FileText />
+            Quotations
+          </TabsTrigger>
+          <TabsTrigger value="inventory">
+            <Package />
+            Inventory
+          </TabsTrigger>
+          <TabsTrigger value="studio">
+            <Sparkles />
+            Mockup studio
+          </TabsTrigger>
+          <TabsTrigger value="settings">
+            <Settings />
+            Settings
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="quotations">
+          {draft ? (
+            <div className="builder">
+              <div className="main-column">
+                <div className="panel">
+                  <div className="section-head">
+                    <h2>{draft.id ? "Edit draft" : "New quotation"}</h2>
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        if (draft.lines.length || draft.customer) {
+                          if (
+                            !window.confirm(
+                              "Close this quotation without saving your changes?",
+                            )
+                          )
+                            return;
+                        }
+                        setDraft(null);
+                      }}
+                    >
+                      <ArrowLeft size={16} /> Back
+                    </button>
+                  </div>
+                  <div className="form-grid">
+                    <Field label="Company / customer">
+                      <input
+                        value={draft.customer}
+                        onChange={(e) =>
+                          setDraft({ ...draft, customer: e.target.value })
+                        }
+                        placeholder="Customer company name"
+                        maxLength={200}
+                      />
+                    </Field>
+                    <Field label="Customer email (optional)">
+                      <input
+                        type="email"
+                        value={draft.email}
+                        onChange={(e) =>
+                          setDraft({ ...draft, email: e.target.value })
+                        }
+                        placeholder="name@company.com"
+                      />
+                    </Field>
+                  </div>
+                  <div className="rate-row">
+                    <span>
+                      Currency <strong>OMR</strong>
+                    </span>
+                    <Field label="OMR per 1 AED">
+                      <input
+                        type="number"
+                        min="0.000001"
+                        max="100"
+                        step="0.000001"
+                        value={draft.rate || ""}
+                        disabled={!!draft.id}
+                        onChange={(e) =>
+                          setDraft({ ...draft, rate: Number(e.target.value) })
+                        }
+                      />
+                    </Field>
+                    <small>
+                      {draft.id
+                        ? "Saved rate retained for this quotation."
+                        : "Review the costing rate before saving."}
+                    </small>
+                  </div>
+                </div>
+                <section className="panel">
+                  <div className="section-head">
+                    <h2>
+                      Quotation items{" "}
+                      <span className="count">{draft.lines.length}</span>
+                    </h2>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setEditProduct(null);
+                        setAddToDraft(true);
+                        setProductDialog(true);
+                      }}
+                    >
+                      <Plus size={16} /> Add new product
+                    </button>
+                  </div>
+                  {!draft.lines.length ? (
+                    <Blank title="Start with the right gifts">
+                      Choose products from the catalogue below, or add a product
+                      your customer has requested.
+                    </Blank>
+                  ) : (
+                    <div className="line-list">
+                      {draft.lines.map((l, i) => {
+                        const p = data.products.find(
+                          (p) => p.id === l.productId,
+                        );
+                        return (
+                          <article className="quote-line" key={i}>
+                            <div className="section-head">
+                              <div>
+                                <strong>{l.name}</strong>
+                                <small>
+                                  {l.sku} · Warehouse{" "}
+                                  {p?.warehouse_stock ?? "—"} · Supplier{" "}
+                                  {p?.supplier_stock ?? "Unknown"}
+                                </small>
+                              </div>
+                              <button
+                                className="icon-button"
+                                aria-label={"Remove " + l.name}
+                                onClick={() =>
+                                  setDraft({
+                                    ...draft,
+                                    lines: draft.lines.filter(
+                                      (_, j) => i !== j,
+                                    ),
+                                  })
+                                }
+                              >
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                            <div className="line-inputs">
+                              <Field label="Quantity">
+                                <input
+                                  aria-label={"Quantity for " + l.name}
+                                  type="number"
+                                  min="1"
+                                  max="1000000"
+                                  step="1"
+                                  value={l.quantity || ""}
+                                  onChange={(e) =>
+                                    updateLine(i, {
+                                      quantity: Number(e.target.value),
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <Field label="Unit selling price · OMR">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="1000000"
+                                  step="0.001"
+                                  value={l.unitBaisa / 1000}
+                                  onChange={(e) =>
+                                    updateLine(i, {
+                                      unitBaisa: Math.round(
+                                        Number(e.target.value) * 1000,
+                                      ),
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <div className="line-total">
+                                <small>Line total · OMR</small>
+                                <strong>
+                                  {money(l.quantity * l.unitBaisa)}
+                                </strong>
+                              </div>
+                            </div>
+                            <Field label="Branding / printing requirements">
+                              <input
+                                value={l.branding}
+                                onChange={(e) =>
+                                  updateLine(i, { branding: e.target.value })
+                                }
+                                placeholder="e.g. One-colour logo, front centre"
+                                maxLength={1000}
+                              />
+                            </Field>
+                            {l.unitBaisa === 0 && (
+                              <p className="warning">
+                                Selling price is zero. Enter the price before
+                                sending to the customer.
+                              </p>
+                            )}
+                            {p && l.quantity > p.warehouse_stock && (
+                              <p className="warning">
+                                {l.quantity - p.warehouse_stock} units exceed
+                                warehouse stock. Confirm sourcing and lead time.
+                              </p>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <Field label="Notes and commercial terms">
+                    <textarea
+                      value={draft.notes}
+                      onChange={(e) =>
+                        setDraft({ ...draft, notes: e.target.value })
+                      }
+                      placeholder="Delivery estimate, validity, payment terms, and any applicable charges"
+                      rows={3}
+                      maxLength={5000}
+                    />
+                  </Field>
+                  <div className="quote-bottom">
+                    <div>
+                      <small>Subtotal · OMR</small>
+                      <strong>{money(total)}</strong>
+                      <small>
+                        No tax, delivery or printing charges added
+                        automatically.
+                      </small>
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={
+                        !!busy ||
+                        !draft.lines.length ||
+                        !draft.customer.trim() ||
+                        !draft.rate
+                      }
+                      onClick={() => void saveDraft()}
+                    >
+                      <Check size={17} />
+                      {busy === "save" ? "Saving…" : "Save draft"}
+                    </button>
+                  </div>
+                </section>
+                <section className="panel">
+                  <div className="section-head">
+                    <h2>Product catalogue</h2>
+                    <span className="badge">
+                      {data.products.length} products
+                    </span>
+                  </div>
+                  <div className="searchbox">
+                    <Search size={18} />
+                    <input
+                      aria-label="Search quotation products"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setPage(0);
+                      }}
+                      placeholder="Search all products, SKUs or categories"
+                    />
+                  </div>
+                  <div className="product-picker">
+                    {filtered.slice(page * 20, (page + 1) * 20).map((p) => (
+                      <article className="picker-row" key={p.id}>
+                        <ProductPhoto product={p} />
+                        <div className="product-info">
+                          <strong>{p.name}</strong>
+                          <small>{p.sku}</small>
+                          <div className="stock-labels">
+                            <span>Warehouse {p.warehouse_stock}</span>
+                            <span>
+                              Supplier {p.supplier_stock ?? "Unknown"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="picker-price">
+                          <strong>
+                            {p.sale_baisa === null
+                              ? "Set price"
+                              : money(p.sale_baisa) + " OMR"}
+                          </strong>
+                          <small>
+                            Cost{" "}
+                            {p.supplier_aed === null && p.supplier_id
+                              ? "unavailable"
+                              : draft.rate || !p.supplier_id
+                                ? money(convertedCost(p, draft.rate)) + " OMR"
+                                : "needs rate"}
+                          </small>
+                        </div>
+                        <button
+                          className="secondary"
+                          aria-label={"Add " + p.name}
+                          onClick={() => addProduct(p)}
+                        >
+                          <Plus size={16} />
+                          <span>Add</span>
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                  {!filtered.length && (
+                    <Blank title="No matching products">
+                      Add a new product or sync your supplier catalogue from
+                      Inventory.
+                    </Blank>
+                  )}
+                  <Pager
+                    page={page}
+                    count={filtered.length}
+                    size={20}
+                    onPage={setPage}
+                  />
+                </section>
+              </div>
+              <aside className="assistant-panel panel">
+                <div className="assistant-icon">
+                  <Sparkles size={22} />
+                </div>
+                <h2>Your quotation assistant</h2>
+                <p>
+                  Describe the gifts and quantities your customer needs. Review
+                  suggestions before adding them.
+                </p>
+                <span
+                  className={"badge " + (data.aiConfigured ? "" : "pending")}
+                >
+                  {data.aiConfigured ? "AI connected" : "AI setup required"}
+                </span>
+                <Field label="Customer request">
+                  <textarea
+                    rows={7}
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    maxLength={5000}
+                    placeholder="Find 100 black water bottles with a white logo for a company event."
+                  />
+                </Field>
+                <button
+                  className="primary wide"
+                  disabled={
+                    !!busy ||
+                    !data.aiConfigured ||
+                    !aiPrompt.trim() ||
+                    !draft.rate
+                  }
+                  onClick={() => void generateDraft()}
+                >
+                  <Sparkles size={16} />
+                  {busy === "ai"
+                    ? "Preparing suggestions…"
+                    : "Prepare quotation"}
+                </button>
+                {!data.aiConfigured && (
+                  <p className="helper">
+                    Connect your AI account in the local environment. You can
+                    continue creating quotations manually.
+                  </p>
+                )}
+                {aiResult && (
+                  <div className="ai-answer">
+                    <p>{aiResult.message}</p>
+                    {aiResult.lines.map((l, i) => (
+                      <p key={i}>
+                        <strong>
+                          {l.quantity} ×{" "}
+                          {
+                            data.products.find((p) => p.id === l.productId)
+                              ?.name
+                          }
+                        </strong>
+                      </p>
+                    ))}
+                    {!!aiResult.lines.length && (
+                      <button
+                        className="secondary wide"
+                        onClick={() => {
+                          aiResult.lines.forEach((l) => {
+                            const p = data.products.find(
+                              (p) => p.id === l.productId,
+                            );
+                            if (p) addProduct(p, l.quantity, l.branding);
+                          });
+                          setAiResult(null);
+                          toast.success(
+                            "Suggestions added. Review the selling prices.",
+                          );
+                        }}
+                      >
+                        Add suggestions to draft
+                      </button>
+                    )}
+                  </div>
+                )}
+              </aside>
+            </div>
+          ) : view ? (
+            <section className="panel">
+              <div className="section-head no-print">
+                <button className="text-button" onClick={() => setView(null)}>
+                  <ArrowLeft size={16} /> All quotations
+                </button>
+                <div className="actions">
+                  {view.status === "Draft" && (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setDraft({
+                          id: view.id,
+                          revision: view.revision,
+                          agent: view.agent,
+                          customer: view.customer,
+                          email: view.email,
+                          notes: view.notes,
+                          rate: view.rate,
+                          lines: view.lines,
+                        });
+                        setView(null);
+                      }}
+                    >
+                      Edit draft
+                    </button>
+                  )}
+                  <Choice
+                    value={view.status}
+                    onChange={(status) =>
+                      void perform("status", async () => {
+                        await api("status", {
+                          id: view.id,
+                          status,
+                          revision: view.revision,
+                        });
+                        const d = await refresh();
+                        setView(d.quotes.find((q) => q.id === view.id) || null);
+                      })
+                    }
+                    placeholder="Quotation status"
+                    items={["Draft", "Reviewed", "Accepted", "Declined"].map(
+                      (s) => ({ id: s, name: s }),
+                    )}
+                    disabled={!!busy}
+                  />
+                  <button className="secondary" onClick={() => window.print()}>
+                    <Printer size={16} /> Print / PDF
+                  </button>
+                </div>
+              </div>
+              <div className="print-document">
+                <div className="document-heading">
+                  <div>
+                    <img
+                      className="quotation-logo"
+                      src="/mais-logo.png"
+                      alt="Mais company logo"
+                      width={100}
+                      height={100}
+                    />
+                    <p className="eyebrow">{data.settings.company}</p>
+                    <h2>Quotation Q-{String(view.number).padStart(4, "0")}</h2>
+                    <span className="badge">{view.status}</span>
+                  </div>
+                  <div>
+                    <small>Prepared for</small>
+                    <h2>{view.customer}</h2>
+                    <p>{view.email}</p>
+                  </div>
+                </div>
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Unit · OMR</TableHead>
+                      <TableHead>Total · OMR</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {view.lines.map((l, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="card-title">
+                          <strong>{l.name}</strong>
+                          <small>{l.sku}</small>
+                          {l.branding && <small>{l.branding}</small>}
+                        </TableCell>
+                        <TableCell data-label="Quantity">
+                          {l.quantity}
+                        </TableCell>
+                        <TableCell data-label="Unit · OMR">
+                          {money(l.unitBaisa)}
+                        </TableCell>
+                        <TableCell data-label="Total · OMR">
+                          {money(l.quantity * l.unitBaisa)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="document-total">
+                  Subtotal <strong>OMR {money(view.total)}</strong>
+                </div>
+                <p className="preserve-lines">{view.notes}</p>
+                <p className="helper">
+                  Prepared by{" "}
+                  {data.agents.find((a) => a.id === view.agent)?.name} ·{" "}
+                  {new Date(view.created).toLocaleDateString("en-OM")}
+                </p>
+              </div>
+            </section>
+          ) : (
+            <>
+              <div className="stats">
+                <div>
+                  <small>Your quotations</small>
+                  <strong>{quoteList.length}</strong>
+                </div>
+                <div>
+                  <small>Drafts to review</small>
+                  <strong>
+                    {quoteList.filter((q) => q.status === "Draft").length}
+                  </strong>
+                </div>
+                <div>
+                  <small>Quoted value · OMR</small>
+                  <strong>
+                    {money(quoteList.reduce((n, q) => n + q.total, 0))}
+                  </strong>
+                </div>
+              </div>
+              <section className="panel">
+                <div className="section-head">
+                  <h2>Your quotations</h2>
+                  <span className="badge">
+                    {data.agents.find((a) => a.id === agent)?.name ||
+                      "Add a sales agent in Settings"}
+                  </span>
+                </div>
+                {quoteList.length ? (
+                  <Table className="responsive-table">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Quotation</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Subtotal · OMR</TableHead>
+                        <TableHead>
+                          <span className="sr-only">Open</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {quoteList.map((q) => (
+                        <TableRow key={q.id}>
+                          <TableCell className="card-title">
+                            <button
+                              className="text-button"
+                              onClick={() => setView(q)}
+                            >
+                              Q-{String(q.number).padStart(4, "0")}
+                            </button>
+                          </TableCell>
+                          <TableCell data-label="Customer">
+                            {q.customer}
+                          </TableCell>
+                          <TableCell data-label="Date">
+                            {new Date(q.created).toLocaleDateString("en-OM")}
+                          </TableCell>
+                          <TableCell data-label="Status">
+                            <span className="badge">{q.status}</span>
+                          </TableCell>
+                          <TableCell data-label="Subtotal · OMR">
+                            <strong>{money(q.total)}</strong>
+                          </TableCell>
+                          <TableCell className="card-actions">
+                            <button
+                              className="secondary"
+                              onClick={() => setView(q)}
+                            >
+                              Open
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Blank title="Your first quotation starts here">
+                    Choose gifts from your catalogue, customise the branding,
+                    and quote in Omani rials.
+                    <br />
+                    <button className="primary mt-5" onClick={startDraft}>
+                      <Plus size={16} /> Create quotation
+                    </button>
+                  </Blank>
+                )}
+              </section>
+            </>
+          )}
+        </TabsContent>
+        <TabsContent value="inventory">
+          <section className="panel">
+            <div className="section-head">
+              <div>
+                <h2>Product inventory</h2>
+                <p className="helper">
+                  Warehouse quantities belong to you. Supplier quantities are
+                  availability snapshots.
+                </p>
+              </div>
+              <div className="actions">
+                {data.isAdmin && (
+                  <button
+                    className="secondary"
+                    disabled={!!busy || !data.supplierConfigured}
+                    onClick={() =>
+                      void perform("sync", async () => {
+                        const r = await api("sync");
+                        await refresh();
+                        toast.success(`${r.count} supplier products synced`);
+                      })
+                    }
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={busy === "sync" ? "spin" : ""}
+                    />
+                    {busy === "sync" ? "Syncing…" : "Sync supplier"}
+                  </button>
+                )}
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setEditProduct(null);
+                    setAddToDraft(false);
+                    setProductDialog(true);
+                  }}
+                >
+                  <Plus size={16} /> Add product
+                </button>
+              </div>
+            </div>
+            <div className="toolbar">
+              <div className="searchbox">
+                <Search size={18} />
+                <input
+                  aria-label="Search inventory"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(0);
+                  }}
+                  placeholder="Search products, SKUs or categories"
+                />
+              </div>
+              <Choice
+                value={filter}
+                onChange={(v) => {
+                  setFilter(v);
+                  setPage(0);
+                }}
+                placeholder="Inventory source"
+                items={[
+                  { id: "all", name: "All products" },
+                  { id: "warehouse", name: "In our warehouse" },
+                  { id: "supplier", name: "Supplier catalogue" },
+                ]}
+              />
+            </div>
+            {filtered.length ? (
+              <>
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Cost · OMR</TableHead>
+                      <TableHead>Selling · OMR</TableHead>
+                      <TableHead>Updated</TableHead>
+                      <TableHead>Manage</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.slice(page * 30, (page + 1) * 30).map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="card-title">
+                          <div className="product-cell">
+                            <ProductPhoto product={p} />
+                            <div>
+                              <strong>{p.name}</strong>
+                              <small>
+                                {p.sku} · {p.category || "Uncategorised"}
+                              </small>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell data-label="Warehouse">
+                          {p.warehouse_stock}
+                        </TableCell>
+                        <TableCell data-label="Supplier">
+                          {p.supplier_stock ?? "Unknown"}
+                        </TableCell>
+                        <TableCell data-label="Cost · OMR">
+                          {p.supplier_id && !data.settings.rate
+                            ? "Set rate"
+                            : p.supplier_id && p.supplier_aed === null
+                              ? "Unknown"
+                              : money(convertedCost(p, data.settings.rate))}
+                        </TableCell>
+                        <TableCell data-label="Selling · OMR">
+                          {p.sale_baisa === null
+                            ? "Not set"
+                            : money(p.sale_baisa)}
+                        </TableCell>
+                        <TableCell data-label="Updated">
+                          {p.supplier_sync
+                            ? new Date(p.supplier_sync).toLocaleString(
+                                "en-OM",
+                                { dateStyle: "short", timeStyle: "short" },
+                              )
+                            : "Manual"}
+                        </TableCell>
+                        <TableCell className="card-actions">
+                          <div className="actions">
+                            {data.isAdmin && (
+                              <button
+                                className="secondary"
+                                onClick={() => {
+                                  setEditProduct(p);
+                                  setProductDialog(true);
+                                }}
+                              >
+                                Update
+                              </button>
+                            )}
+                            <button
+                              className="text-button"
+                              onClick={() => {
+                                setStudioProduct(p.id);
+                                setTab("studio");
+                              }}
+                            >
+                              Mockup
+                            </button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Pager
+                  page={page}
+                  count={filtered.length}
+                  size={30}
+                  onPage={setPage}
+                />
+              </>
+            ) : (
+              <Blank title="Build your product catalogue">
+                Sync your supplier or add the products you hold in stock.
+              </Blank>
+            )}
+          </section>
+        </TabsContent>
+        <TabsContent value="studio">
+          <div className="studio-layout">
+            <form className="panel" onSubmit={generateMockup}>
+              <div className="assistant-icon">
+                <Sparkles size={22} />
+              </div>
+              <h2>Create a branded mockup</h2>
+              <p>Use the actual product photograph and your customer’s logo.</p>
+              <Field label="Product">
+                <Choice
+                  value={studioProduct}
+                  onChange={setStudioProduct}
+                  placeholder="Select a product"
+                  items={data.products.map((p) => ({
+                    id: p.id,
+                    name: p.name + " · " + p.sku,
+                  }))}
+                />
+              </Field>
+              {selectedProduct && (
+                <div className="studio-product">
+                  <ProductPhoto product={selectedProduct} />
+                  <div>
+                    <strong>{selectedProduct.name}</strong>
+                    <small>{selectedProduct.sku}</small>
+                  </div>
+                </div>
+              )}
+              <Field label="Customer logo · PNG, JPG or WebP">
+                <input
+                  name="logo"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  required
+                />
+              </Field>
+              <Field label="Product photograph (optional override)">
+                <input
+                  name="photo"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                />
+              </Field>
+              <p className="helper">
+                Maximum 8 MB per image. A transparent PNG works well for logos.
+              </p>
+              <Field label="Logo placement and printing finish">
+                <textarea
+                  name="instruction"
+                  rows={4}
+                  maxLength={1500}
+                  placeholder="White logo, centred on the front of the bottle, screen-printed finish."
+                />
+              </Field>
+              <button
+                className="primary wide"
+                disabled={
+                  !!busy || !agent || !studioProduct || !data.aiConfigured
+                }
+              >
+                <Sparkles size={16} />
+                {busy === "mockup"
+                  ? "Creating your mockup…"
+                  : "Generate mockup"}
+              </button>
+              {!data.aiConfigured && (
+                <p className="notice">
+                  Connect an AI account to enable image generation.
+                </p>
+              )}
+              <p className="helper">
+                AI previews are visual concepts. Review logo lettering,
+                placement and print suitability before customer approval.
+              </p>
+            </form>
+            <section className="panel">
+              <div className="section-head">
+                <h2>Your mockups</h2>
+                <span className="badge">{mockups.length} saved</span>
+              </div>
+              {mockups.length ? (
+                <div className="mockup-grid">
+                  {mockups.map((m) => (
+                    <article key={m.id}>
+                      <img
+                        src={"/api/assets?path=" + encodeURIComponent(m.path)}
+                        alt={"Branded mockup of " + m.productName}
+                      />
+                      <div className="section-head">
+                        <strong>{m.productName}</strong>
+                        <a
+                          className="secondary"
+                          href={
+                            "/api/assets?path=" + encodeURIComponent(m.path)
+                          }
+                          download={"mockup-" + m.id + ".png"}
+                        >
+                          <Download size={16} /> Save
+                        </a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <Blank title="Your product, with their identity">
+                  Select a product and upload a logo. Generated mockups will be
+                  saved here for the selected sales agent.
+                </Blank>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+        <TabsContent value="settings">
+          <div className="settings-grid">
+            {data.isAdmin ? (
+              <form
+                className="panel"
+                key={data.settings.updated}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void perform("settings", async () => {
+                    await api("settings", {
+                      company: String(f.get("company")),
+                      rate: Number(f.get("rate")),
+                    });
+                    await refresh();
+                    toast.success("Settings saved");
+                  });
+                }}
+              >
+                <h2>Company and currency</h2>
+                <Field label="Company name">
+                  <input
+                    name="company"
+                    defaultValue={data.settings.company}
+                    required
+                    maxLength={200}
+                  />
+                </Field>
+                <Field label="Conversion rate · OMR per 1 AED">
+                  <input
+                    name="rate"
+                    type="number"
+                    min="0.000001"
+                    max="100"
+                    step="0.000001"
+                    defaultValue={data.settings.rate || ""}
+                    placeholder="Enter your approved exchange rate"
+                    required
+                  />
+                </Field>
+                <p className="helper">
+                  Supplier prices are in AED. The initial rate of 0.104699 is
+                  indicative, based on currency pegs; it excludes bank fees.
+                  Change it to your business costing rate. Existing quotations
+                  keep their saved rate and prices. Selling prices are set
+                  separately.
+                </p>
+                <button className="primary" disabled={!!busy}>
+                  Save settings
+                </button>
+              </form>
+            ) : (
+              <section className="panel">
+                <h2>Company and currency</h2>
+                <p className="helper">
+                  {data.settings.company} · {data.settings.rate || "—"} OMR
+                  per AED
+                </p>
+                <p className="helper">
+                  Only an administrator can change these values.
+                </p>
+              </section>
+            )}
+            {data.isAdmin && (
+              <section className="panel">
+                <h2>Sales agents</h2>
+                <p className="helper">
+                  Add a staff sign-in so an agent can access their own
+                  quotations directly, or leave email blank to keep a local
+                  profile only.
+                </p>
+                {data.agents.map((a) => (
+                  <div className="agent-row" key={a.id}>
+                    <Users size={18} />
+                    <strong>{a.name}</strong>
+                    <span className="badge">Quotation assistant</span>
+                  </div>
+                ))}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.currentTarget;
+                    const f = new FormData(form);
+                    void perform("agent", async () => {
+                      const r = await api("agent", {
+                        name: String(f.get("name")),
+                        email: String(f.get("email") || "") || undefined,
+                        password:
+                          String(f.get("password") || "") || undefined,
+                      });
+                      await refresh();
+                      if (!draft) {
+                        setAgent(r.id);
+                        setMockups([]);
+                      }
+                      form.reset();
+                      toast.success("Sales agent added");
+                    });
+                  }}
+                >
+                  <Field label="New agent name">
+                    <input
+                      name="name"
+                      required
+                      maxLength={200}
+                      placeholder="Full name"
+                    />
+                  </Field>
+                  <div className="form-grid">
+                    <Field label="Sign-in email (optional)">
+                      <input
+                        name="email"
+                        type="email"
+                        placeholder="name@company.com"
+                      />
+                    </Field>
+                    <Field label="Sign-in password (optional)">
+                      <input
+                        name="password"
+                        type="password"
+                        minLength={8}
+                        maxLength={72}
+                        placeholder="At least 8 characters"
+                        autoComplete="new-password"
+                      />
+                    </Field>
+                  </div>
+                  <button className="secondary" disabled={!!busy}>
+                    <Plus size={16} /> Add sales agent
+                  </button>
+                </form>
+              </section>
+            )}
+            <section className="panel">
+              <h2>Connections</h2>
+              <div className="connection">
+                <div>
+                  <strong>Luxury Trading</strong>
+                  <p>Products, images, AED costs and supplier stock</p>
+                </div>
+                <span className="badge">
+                  {data.supplierConfigured ? "Configured" : "Needs credentials"}
+                </span>
+              </div>
+              <div className="connection">
+                <div>
+                  <strong>AI assistant & mockups</strong>
+                  <p>Quotation suggestions and branded product previews</p>
+                </div>
+                <span className="badge">
+                  {data.aiConfigured ? "Configured" : "Needs API key"}
+                </span>
+              </div>
+              <p className="helper">
+                Connection secrets are configured on the server and never
+                included in the public source code.
+              </p>
+            </section>
+            <section className="panel">
+              <h2>About Cloud ERP</h2>
+              <p>Corporate gifting workspace for Oman.</p>
+              <strong>Developed by Irfan Dossani</strong>
+              <p className="helper">
+                Local development version. Quotation and inventory workflows are
+                available here; deployment and staff access are a later step.
+              </p>
+            </section>
+          </div>
+        </TabsContent>
+      </Tabs>
+      <footer className="developer-credit">Developed by Irfan Dossani</footer>
+      <Dialog open={productDialog} onOpenChange={setProductDialog}>
+        <DialogContent className="product-dialog">
+          <DialogTitle>
+            {editProduct
+              ? "Update stock and selling price"
+              : addToDraft
+                ? "Add a product to this quotation"
+                : "Add product"}
+          </DialogTitle>
+          <DialogDescription>
+            {editProduct
+              ? editProduct.name
+              : "Create a catalogue record now. You can use it again on future quotations."}
+          </DialogDescription>
+          <form onSubmit={saveProduct} key={editProduct?.id || "new"}>
+            {!editProduct && (
+              <>
+                <div className="form-grid">
+                  <Field label="Product name">
+                    <input name="name" required maxLength={200} />
+                  </Field>
+                  <Field label="SKU">
+                    <input name="sku" required maxLength={200} />
+                  </Field>
+                </div>
+                <Field label="Description">
+                  <textarea name="description" rows={2} maxLength={5000} />
+                </Field>
+                <Field label="Category">
+                  <input name="category" maxLength={1000} />
+                </Field>
+                <Field label="Product image URL (optional)">
+                  <input name="image" type="url" placeholder="https://…" />
+                </Field>
+              </>
+            )}
+            <div className={data.isAdmin ? "form-grid" : undefined}>
+              {data.isAdmin && (
+                <Field label="Our warehouse quantity">
+                  <input
+                    name="warehouse"
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    step="1"
+                    defaultValue={editProduct?.warehouse_stock ?? 0}
+                    required
+                  />
+                </Field>
+              )}
+              <Field label="Unit selling price · OMR">
+                <input
+                  name="sale"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.001"
+                  defaultValue={
+                    editProduct?.sale_baisa === null
+                      ? ""
+                      : editProduct
+                        ? editProduct.sale_baisa! / 1000
+                        : ""
+                  }
+                  placeholder="Set later"
+                />
+              </Field>
+            </div>
+            {!data.isAdmin && !editProduct && (
+              <p className="helper">
+                New products are added with zero warehouse quantity. An
+                administrator can set stock afterwards.
+              </p>
+            )}
+            {!editProduct && (
+              <Field label="Unit cost · OMR">
+                <input
+                  name="cost"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.001"
+                  defaultValue={0}
+                  required
+                />
+              </Field>
+            )}
+            <button className="primary wide" disabled={!!busy}>
+              {busy === "product"
+                ? "Saving…"
+                : editProduct
+                  ? "Save changes"
+                  : addToDraft
+                    ? "Create and add to quotation"
+                    : "Create product"}
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </main>
+  );
+}
+function ProductPhoto({ product }: { product: Product }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="product-photo">
+      {product.image && !failed ? (
+        <img
+          src={product.image}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <ImageIcon size={22} />
+      )}
+    </div>
+  );
+}
+function Pager({
+  page,
+  count,
+  size,
+  onPage,
+}: {
+  page: number;
+  count: number;
+  size: number;
+  onPage: (n: number) => void;
+}) {
+  return (
+    <div className="pager">
+      <small>
+        {count ? Math.min(page * size + 1, count) : 0}–
+        {Math.min((page + 1) * size, count)} of {count} products
+      </small>
+      <div className="actions">
+        <button
+          className="secondary"
+          disabled={page === 0}
+          onClick={() => onPage(page - 1)}
+        >
+          Previous
+        </button>
+        <button
+          className="secondary"
+          disabled={(page + 1) * size >= count}
+          onClick={() => onPage(page + 1)}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}

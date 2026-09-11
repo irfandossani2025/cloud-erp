@@ -4,6 +4,8 @@ Corporate gifting workspace for Oman. **Developed by Irfan Dossani.**
 
 The current deliverable is a local web application editable in Visual Studio Code. Its source is stored in this GitHub repository. Deployment to a company subdomain is a separate next phase.
 
+This root application (React, Vinext/Vite, Cloudflare Workers) is guarded to `localhost` only and has no staff login. The [`laravel/`](laravel/README.md) directory holds a second edition of the same product on Laravel, with real staff authentication and administrator/sales-agent roles — see [laravel/README.md](laravel/README.md) for its setup.
+
 ## Local setup
 
 Requires Node.js 22.13 or later. Python 3 is used only by the optional API integration check.
@@ -40,11 +42,11 @@ See [currency details](docs/currency.md) for the initial indicative exchange rat
 Set server-side values in `.dev.vars` and restart the local server:
 
 - `LUXURY_API_USERNAME` and `LUXURY_API_PASSWORD`: supplier credentials. Obtain these from the supplier documentation; never commit the documentation's credentials.
-- `OPENAI_API_KEY`: required for live quotation suggestions and image generation. A ChatGPT/Codex login does not populate this automatically.
-- `OPENAI_TEXT_MODEL`: defaults to `gpt-5.6-luna`.
-- `OPENAI_IMAGE_MODEL`: defaults to `gpt-image-2.5-flare`.
+- `GEMINI_API_KEY`: required for live quotation suggestions and image generation, using the Google Gemini API. Create one at [Google AI Studio](https://aistudio.google.com/apikey).
+- `GEMINI_TEXT_MODEL`: defaults to `gemini-2.5-flash`.
+- `GEMINI_IMAGE_MODEL`: defaults to `gemini-2.5-flash-image`.
 
-Both AI models are configurable. The quotation integration uses the [OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create) with structured output. The studio uses the [OpenAI Images edit API](https://developers.openai.com/api/docs/guides/image-generation) with the product and logo as reference images. API access and billing must be enabled on the chosen account. No live AI requests are made until a key is configured and a user requests generation.
+Both AI models are configurable. The quotation integration uses Gemini's [`generateContent`](https://ai.google.dev/gemini-api/docs/structured-output) with a response schema for structured output. The studio uses the same endpoint with the product and logo supplied as inline reference images to Gemini's image generation model. API access and billing must be enabled on the chosen account. No live AI requests are made until a key is configured and a user requests generation.
 
 `.env.example` mirrors the configuration for reference; the local Worker reads `.dev.vars`. Neither the real environment file nor local databases, customer data, logos, or generated images are tracked in Git. Never use a `NEXT_PUBLIC_` or `VITE_` prefix for secrets.
 

@@ -90,6 +90,10 @@ svg {
   border-bottom: 1px solid var(--border);
   min-height: 85px;
 }
+.topbar .choice {
+  width: 210px !important;
+  flex: 0 0 auto;
+}
 .brand {
   display: flex;
   gap: 12px;
@@ -223,6 +227,30 @@ svg {
   }
 }
 
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  margin-left: auto;
+}
+.user-menu form {
+  display: contents;
+}
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .user-name {
+    display: none;
+  }
+  .user-menu {
+    padding-left: 6px;
+  }
+}
 .developer-credit {
   padding-top: 32px;
   text-align: center;
@@ -783,7 +811,67 @@ th {
     flex-basis: 44px;
   }
 }
+@media (max-width: 720px) {
+  .responsive-table thead {
+    display: none;
+  }
+  .responsive-table tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px 14px;
+    margin-bottom: 12px;
+  }
+  .responsive-table tr:last-child {
+    margin-bottom: 0;
+  }
+  .responsive-table td {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    text-align: right;
+    padding: 11px 0 !important;
+    border-bottom: 1px solid var(--border);
+  }
+  .responsive-table td:last-child {
+    border-bottom: 0;
+  }
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 12px;
+    color: #637085;
+    text-align: left;
+  }
+  .responsive-table td.card-title,
+  .responsive-table td.card-actions {
+    display: block !important;
+    text-align: left;
+  }
+  .responsive-table td.card-title {
+    padding-bottom: 13px !important;
+  }
+  .responsive-table .product-cell {
+    justify-content: flex-start;
+  }
+}
 @media print {
+  .responsive-table thead {
+    display: table-header-group !important;
+  }
+  .responsive-table tr {
+    display: table-row !important;
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
+  .responsive-table td {
+    display: table-cell !important;
+  }
+  .responsive-table td::before {
+    content: none !important;
+  }
   body {
     background: white;
   }

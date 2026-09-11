@@ -90,41 +90,66 @@ export async function POST(request: Request) {
       photo = await r.blob();
     }
     await checkImage(photo as Blob);
-    const key = secret("OPENAI_API_KEY");
+    const key = secret("GEMINI_API_KEY");
     if (!key)
       throw new Error(
-        "AI mockups need an OpenAI API key in the local environment.",
+        "AI mockups need a Gemini API key in the local environment.",
       );
     if (!env.BUCKET) throw new Error("Image storage is not configured.");
     const instruction = String(form.get("instruction") || "").slice(0, 1500);
-    const payload = new FormData();
-    payload.append(
-      "model",
-      secret("OPENAI_IMAGE_MODEL") || "gpt-image-2.5-flare",
+    const toBase64 = async (blob: Blob) =>
+      btoa(
+        String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())),
+      );
+    const model = secret("GEMINI_IMAGE_MODEL") || "gemini-2.5-flash-image";
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": key,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Create one realistic product branding mockup. First image is the actual ${product.name}, second is the customer's logo. Preserve the exact product shape, material and colour. Place the supplied logo naturally on the product, following its surface perspective, lighting and texture. Preserve the logo's lettering, colours and proportions as faithfully as possible. Use a clean studio background. Do not add extra branding or unrelated objects. Requested placement and printing finish: ${instruction || "Centred on the front, professional printed finish"}.`,
+                },
+                {
+                  inlineData: {
+                    mimeType: (photo as Blob).type,
+                    data: await toBase64(photo as Blob),
+                  },
+                },
+                {
+                  inlineData: {
+                    mimeType: logo.type,
+                    data: await toBase64(logo),
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: { responseModalities: ["IMAGE"] },
+        }),
+        signal: AbortSignal.timeout(180000),
+      },
     );
-    payload.append("image[]", photo as Blob, "product.png");
-    payload.append("image[]", logo, "logo.png");
-    payload.append(
-      "prompt",
-      `Create one realistic product branding mockup. First image is the actual ${product.name}, second is the customer's logo. Preserve the exact product shape, material and colour. Place the supplied logo naturally on the product, following its surface perspective, lighting and texture. Preserve the logo's lettering, colours and proportions as faithfully as possible. Use a clean studio background. Do not add extra branding or unrelated objects. Requested placement and printing finish: ${instruction || "Centred on the front, professional printed finish"}.`,
-    );
-    payload.append("size", "1024x1024");
-    payload.append("quality", "medium");
-    payload.append("output_format", "png");
-    const response = await fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}` },
-      body: payload,
-      signal: AbortSignal.timeout(180000),
-    });
     if (!response.ok)
       throw new Error(
         `Mockup generation failed (${response.status}). You can retry with the same images.`,
       );
     const result = (await response.json()) as {
-      data?: { b64_json?: string }[];
+      candidates?: {
+        content?: { parts?: { inlineData?: { data?: string } }[] };
+      }[];
     };
-    const base64 = result.data?.[0]?.b64_json;
+    const base64 = result.candidates?.[0]?.content?.parts?.find(
+      (p) => p.inlineData?.data,
+    )?.inlineData?.data;
     if (!base64) throw new Error("No mockup image was returned.");
     const id = crypto.randomUUID(),
       path = `mockups/${id}.png`;

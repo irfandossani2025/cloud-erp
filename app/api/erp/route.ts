@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       supplierConfigured: !!(
         secret("LUXURY_API_USERNAME") && secret("LUXURY_API_PASSWORD")
       ),
-      aiConfigured: !!secret("OPENAI_API_KEY"),
+      aiConfigured: !!secret("GEMINI_API_KEY"),
     });
   } catch (e) {
     return fail(e);
