@@ -129,6 +129,40 @@ class ErpWorkflowTest extends TestCase
         ])->assertStatus(409);
     }
 
+    public function test_non_admin_does_not_receive_cost_data(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        [$admin] = $this->makeAgent('Admin User', true);
+        $productId = $this->makeProduct();
+        DB::table('products')->where('id', $productId)->update(['supplier_aed' => 200]);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]],
+            ],
+        ])->assertOk();
+
+        $agentView = $this->actingAs($agent)->getJson('/api/erp')->json();
+        $this->assertArrayNotHasKey('cost_baisa', $agentView['products'][0]);
+        $this->assertArrayNotHasKey('supplier_aed', $agentView['products'][0]);
+        $this->assertArrayNotHasKey('costBaisa', $agentView['quotes'][0]['lines'][0]);
+
+        $adminView = $this->actingAs($admin)->getJson('/api/erp')->json();
+        $this->assertArrayHasKey('cost_baisa', $adminView['products'][0]);
+        $this->assertArrayHasKey('supplier_aed', $adminView['products'][0]);
+        $this->assertArrayHasKey('costBaisa', $adminView['quotes'][0]['lines'][0]);
+    }
+
+    public function test_non_admin_cannot_set_nonzero_cost_on_a_new_product(): void
+    {
+        [$agent] = $this->makeAgent('Agent One');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Mug', 'sku' => 'MUG-2', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->assertForbidden();
+    }
+
     public function test_agent_creation_with_email_grants_a_working_login(): void
     {
         [$admin] = $this->makeAgent('Admin User', true);

@@ -851,14 +851,17 @@ export default function Home() {
                               ? "Set price"
                               : money(p.sale_baisa) + " OMR"}
                           </strong>
-                          <small>
-                            Cost{" "}
-                            {p.supplier_aed === null && p.supplier_id
-                              ? "unavailable"
-                              : draft.rate || !p.supplier_id
-                                ? money(convertedCost(p, draft.rate)) + " OMR"
-                                : "needs rate"}
-                          </small>
+                          {data.isAdmin && (
+                            <small>
+                              Cost{" "}
+                              {p.supplier_aed === null && p.supplier_id
+                                ? "unavailable"
+                                : draft.rate || !p.supplier_id
+                                  ? money(convertedCost(p, draft.rate)) +
+                                    " OMR"
+                                  : "needs rate"}
+                            </small>
+                          )}
                         </div>
                         <button
                           className="secondary"
@@ -1246,7 +1249,7 @@ export default function Home() {
                       <TableHead>Product</TableHead>
                       <TableHead>Warehouse</TableHead>
                       <TableHead>Supplier</TableHead>
-                      <TableHead>Cost · OMR</TableHead>
+                      {data.isAdmin && <TableHead>Cost · OMR</TableHead>}
                       <TableHead>Selling · OMR</TableHead>
                       <TableHead>Updated</TableHead>
                       <TableHead>Manage</TableHead>
@@ -1272,13 +1275,15 @@ export default function Home() {
                         <TableCell data-label="Supplier">
                           {p.supplier_stock ?? "Unknown"}
                         </TableCell>
-                        <TableCell data-label="Cost · OMR">
-                          {p.supplier_id && !data.settings.rate
-                            ? "Set rate"
-                            : p.supplier_id && p.supplier_aed === null
-                              ? "Unknown"
-                              : money(convertedCost(p, data.settings.rate))}
-                        </TableCell>
+                        {data.isAdmin && (
+                          <TableCell data-label="Cost · OMR">
+                            {p.supplier_id && !data.settings.rate
+                              ? "Set rate"
+                              : p.supplier_id && p.supplier_aed === null
+                                ? "Unknown"
+                                : money(convertedCost(p, data.settings.rate))}
+                          </TableCell>
+                        )}
                         <TableCell data-label="Selling · OMR">
                           {p.sale_baisa === null
                             ? "Not set"
@@ -1691,7 +1696,7 @@ export default function Home() {
                 administrator can set stock afterwards.
               </p>
             )}
-            {!editProduct && (
+            {!editProduct && data.isAdmin && (
               <Field label="Unit cost · OMR">
                 <input
                   name="cost"

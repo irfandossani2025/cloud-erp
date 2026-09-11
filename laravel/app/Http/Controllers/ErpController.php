@@ -22,14 +22,31 @@ class ErpController extends Controller
             $quotes->where('agent', $request->user()->agent_id);
         }
         $settings = DB::table('settings')->where('id', 1)->first();
+        $isAdmin = (bool) $request->user()->is_admin;
+        $products = DB::table('products')->orderBy('name')->get();
+        if (!$isAdmin) {
+            $products = $products->map(function ($p) {
+                unset($p->cost_baisa, $p->supplier_aed);
+                return $p;
+            });
+        }
         return response()->json([
-            'products' => DB::table('products')->orderBy('name')->get(),
-            'quotes' => $quotes->get()->map(fn ($q) => [...(array) $q, 'rate' => (float) $q->rate, 'lines' => json_decode($q->lines, true)]),
+            'products' => $products,
+            'quotes' => $quotes->get()->map(function ($q) use ($isAdmin) {
+                $lines = json_decode($q->lines, true);
+                if (!$isAdmin) {
+                    $lines = array_map(function ($l) {
+                        unset($l['costBaisa']);
+                        return $l;
+                    }, $lines);
+                }
+                return [...(array) $q, 'rate' => (float) $q->rate, 'lines' => $lines];
+            }),
             'agents' => $agents->get(),
             'settings' => $settings ? [...(array) $settings, 'rate' => (float) $settings->rate] : ['rate' => config('erp.default_rate'), 'company' => 'Cloud ERP', 'updated' => null],
             'supplierConfigured' => (bool) (config('erp.supplier_username') && config('erp.supplier_password')),
             'aiConfigured' => (bool) config('erp.gemini_key'),
-            'isAdmin' => (bool) $request->user()->is_admin,
+            'isAdmin' => $isAdmin,
             'userName' => $request->user()->name,
         ]);
     }
@@ -47,6 +64,7 @@ class ErpController extends Controller
                 'product.saleBaisa' => 'nullable|integer|min:0|max:1000000000', 'product.costBaisa' => 'required|integer|min:0|max:1000000000',
             ])['product'];
             abort_if(!$request->user()->is_admin && $v['warehouseStock'] !== 0, 403, 'Only an administrator can set warehouse quantities.');
+            abort_if(!$request->user()->is_admin && $v['costBaisa'] !== 0, 403, 'Only an administrator can set product cost.');
             $id = (string) Str::uuid();
             DB::table('products')->insert(['id' => $id, 'name' => $v['name'], 'sku' => $v['sku'], 'description' => $v['description'] ?? '', 'category' => $v['category'] ?? '', 'image' => $v['image'] ?? '', 'warehouse_stock' => $v['warehouseStock'], 'sale_baisa' => $v['saleBaisa'] ?? null, 'cost_baisa' => $v['costBaisa']]);
             return response()->json(['id' => $id]);
