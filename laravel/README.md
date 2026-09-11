@@ -79,6 +79,55 @@ generation. Generated mockups are stored on the `local` filesystem disk
 (private; never web-accessible directly) and served only to the agent who
 owns them, or an administrator, through `/api/assets`.
 
+## Deploying to Plesk (MariaDB)
+
+1. In Plesk, create a MariaDB database and database user under **Databases**,
+   and note the database name, username, password, and host (usually
+   `localhost` when the app and database share the same Plesk server).
+2. Point the domain's document root at `laravel/public` (Plesk → **Hosting
+   Settings** → Document root), not the repository root — Laravel serves
+   from `public/`.
+3. Pull the repository onto the server (Plesk Git integration, or SSH +
+   `git clone`), then from the `laravel/` directory:
+   ```sh
+   composer install --no-dev --optimize-autoloader
+   cp .env.example .env
+   php artisan key:generate --force
+   ```
+4. Edit `.env` for production:
+   ```
+   APP_ENV=production
+   APP_DEBUG=false
+   APP_URL=https://your-domain.example
+
+   DB_CONNECTION=mysql
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_DATABASE=<the database Plesk created>
+   DB_USERNAME=<the database user Plesk created>
+   DB_PASSWORD=<its password>
+
+   LUXURY_API_USERNAME=
+   LUXURY_API_PASSWORD=
+   GEMINI_API_KEY=
+   ```
+5. Run migrations and create the first administrator (the "Open local
+   preview" shortcut is disabled outside `APP_ENV=local`):
+   ```sh
+   php artisan migrate --force
+   php artisan erp:make-admin you@company.com "Your Name"
+   php artisan config:cache && php artisan route:cache && php artisan view:cache
+   ```
+6. Confirm Plesk's PHP setting for the domain is **8.3 or newer**, and that
+   `storage/` and `bootstrap/cache/` are writable by the web server user
+   (Plesk sets this automatically for most PHP hosting).
+
+The built frontend in `laravel/public/build/` is committed to the repository,
+so the host does not need Node.js — only PHP and Composer. If you change
+`resources/ERP.tsx` (or anything else it imports) after this point, rebuild
+it from the repository root with `npm run build:laravel` and commit the
+updated `laravel/public/build/` output before deploying again.
+
 ## Checks
 
 ```sh

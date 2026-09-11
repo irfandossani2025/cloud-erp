@@ -17,7 +17,7 @@ return new class extends Migration {
         });
         Schema::create('products', function (Blueprint $t) {
             $t->uuid('id')->primary();
-            $t->string('sku', 200)->unique();
+            $t->string('sku', 191)->unique();
             $t->string('name', 200);
             $t->text('description')->nullable();
             $t->text('category')->nullable();
@@ -45,7 +45,10 @@ return new class extends Migration {
             $t->text('notes')->nullable();
             $t->string('status')->default('Draft');
             $t->decimal('rate', 12, 8);
-            $t->json('lines');
+            // longText, not json: the production host runs MariaDB 10.1,
+            // which predates native JSON columns (MariaDB 10.2.7+). The app
+            // only ever reads/writes this as an opaque JSON string in PHP.
+            $t->longText('lines');
             $t->unsignedBigInteger('total');
             $t->string('created');
             $t->string('updated');

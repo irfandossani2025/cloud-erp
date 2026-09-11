@@ -41,7 +41,7 @@ class ErpController extends Controller
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
         if ($action === 'product') {
             $v = $request->validate([
-                'product.name' => 'required|string|max:200', 'product.sku' => 'required|string|max:200|unique:products,sku',
+                'product.name' => 'required|string|max:200', 'product.sku' => 'required|string|max:191|unique:products,sku',
                 'product.description' => 'nullable|string|max:5000', 'product.category' => 'nullable|string|max:1000',
                 'product.image' => 'nullable|url:https|max:2000', 'product.warehouseStock' => 'required|integer|min:0|max:1000000',
                 'product.saleBaisa' => 'nullable|integer|min:0|max:1000000000', 'product.costBaisa' => 'required|integer|min:0|max:1000000000',

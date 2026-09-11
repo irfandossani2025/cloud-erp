@@ -23,7 +23,7 @@ class SupplierCatalogue
         $ids = []; $skus = []; $normalised = [];
         foreach ($rows as $row) {
             Validator::make($row, [
-                'id' => 'required|integer', 'name' => 'required|string|max:200', 'sku' => 'required|string|max:200',
+                'id' => 'required|integer', 'name' => 'required|string|max:200', 'sku' => 'required|string|max:191',
                 'price' => 'nullable|numeric|min:0|max:10000000', 'stock_quantity' => 'nullable|integer|min:0|max:1000000000',
                 'categories' => 'sometimes|array', 'categories.*' => 'string', 'images' => 'sometimes|array', 'images.*' => 'string',
             ])->validate();
