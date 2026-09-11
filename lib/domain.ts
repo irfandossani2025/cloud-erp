@@ -40,6 +40,79 @@ export type Quote = {
   updated: string;
   revision: number;
 };
+export const CRM_STAGES = [
+  "New Lead",
+  "Contacted",
+  "Qualified",
+  "Proposal Sent",
+  "Won",
+  "Lost",
+] as const;
+export type Customer = {
+  id: string;
+  agent: string;
+  company: string;
+  contact_name: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  stage: string;
+  notes: string;
+  follow_up_at: string | null;
+  created: string;
+  updated: string;
+};
+export type CustomerActivity = {
+  id: string;
+  customer_id: string;
+  agent: string;
+  type: string;
+  notes: string;
+  created: string;
+};
+export type DeliveryLine = {
+  productId: string;
+  name: string;
+  sku: string;
+  quantity: number;
+};
+export type DeliveryNote = {
+  id: string;
+  number: number;
+  quote_id: string;
+  agent: string;
+  customer: string;
+  address: string;
+  lines: DeliveryLine[];
+  notes: string;
+  status: string;
+  created: string;
+  updated: string;
+};
+export type InvoiceLine = {
+  productId: string;
+  name: string;
+  sku: string;
+  quantity: number;
+  unitBaisa: number;
+};
+export type Invoice = {
+  id: string;
+  number: number;
+  quote_id: string;
+  agent: string;
+  customer: string;
+  email: string;
+  lines: InvoiceLine[];
+  subtotal: number;
+  vat_baisa: number;
+  total: number;
+  status: string;
+  notes: string;
+  due_date: string | null;
+  created: string;
+  updated: string;
+};
 export const money = (baisa: number) =>
   new Intl.NumberFormat("en-OM", {
     minimumFractionDigits: 3,

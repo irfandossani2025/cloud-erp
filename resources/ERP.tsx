@@ -22,6 +22,12 @@ import {
   Printer,
   Users,
   LogOut,
+  Contact,
+  Receipt,
+  Truck,
+  Phone,
+  Mail,
+  CalendarClock,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -58,16 +64,31 @@ import {
   money,
   convertedCost,
   DEFAULT_AED_OMR_RATE,
+  CRM_STAGES,
   type Product,
   type Quote,
   type Line,
+  type Customer,
+  type CustomerActivity,
+  type DeliveryNote,
+  type Invoice,
 } from "@/lib/domain";
 type Agent = { id: string; name: string };
 type State = {
   products: Product[];
   quotes: Quote[];
   agents: Agent[];
-  settings: { company: string; rate: number; updated: string | null };
+  customers: Customer[];
+  customerActivities: CustomerActivity[];
+  deliveryNotes: DeliveryNote[];
+  invoices: Invoice[];
+  settings: {
+    company: string;
+    rate: number;
+    vat_number: string | null;
+    updated: string | null;
+  };
+  vatRate: number;
   supplierConfigured: boolean;
   aiConfigured: boolean;
   isAdmin: boolean;
@@ -93,7 +114,17 @@ const initial: State = {
   products: [],
   quotes: [],
   agents: [],
-  settings: { company: "Cloud ERP", rate: DEFAULT_AED_OMR_RATE, updated: null },
+  customers: [],
+  customerActivities: [],
+  deliveryNotes: [],
+  invoices: [],
+  settings: {
+    company: "Cloud ERP",
+    rate: DEFAULT_AED_OMR_RATE,
+    vat_number: null,
+    updated: null,
+  },
+  vatRate: 0.05,
   supplierConfigured: false,
   aiConfigured: false,
   isAdmin: false,
@@ -184,6 +215,18 @@ export default function Home() {
     } | null>(null);
   const [studioProduct, setStudioProduct] = useState(""),
     [mockups, setMockups] = useState<Mockup[]>([]);
+  const [customerDialog, setCustomerDialog] = useState(false),
+    [editCustomer, setEditCustomer] = useState<Customer | null>(null),
+    [viewCustomer, setViewCustomer] = useState<Customer | null>(null),
+    [customerSearch, setCustomerSearch] = useState(""),
+    [stageFilter, setStageFilter] = useState("all"),
+    [activityType, setActivityType] = useState("call"),
+    [activityNotes, setActivityNotes] = useState("");
+  const [docTab, setDocTab] = useState<"delivery" | "invoice">("delivery"),
+    [viewDeliveryNote, setViewDeliveryNote] = useState<DeliveryNote | null>(
+      null,
+    ),
+    [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const refresh = useCallback(async () => {
     try {
       const r = await request("/api/erp");
@@ -315,6 +358,16 @@ export default function Home() {
   );
   const quoteList = data.quotes.filter((q) => q.agent === agent);
   const selectedProduct = data.products.find((p) => p.id === studioProduct);
+  const customerList = data.customers.filter(
+    (c) =>
+      c.agent === agent &&
+      (stageFilter === "all" || c.stage === stageFilter) &&
+      (c.company + " " + c.contact_name)
+        .toLowerCase()
+        .includes(customerSearch.toLowerCase()),
+  );
+  const deliveryList = data.deliveryNotes.filter((n) => n.agent === agent);
+  const invoiceList = data.invoices.filter((i) => i.agent === agent);
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -466,6 +519,92 @@ export default function Home() {
       toast.success("Mockup saved");
     });
   }
+  async function saveCustomer(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    await perform("customer", async () => {
+      const followUpAt = String(f.get("followUpAt") || "");
+      const r = await api("customer", {
+        customer: {
+          id: editCustomer?.id,
+          agent,
+          company: String(f.get("company")),
+          contactName: String(f.get("contactName")),
+          email: String(f.get("email") || "") || undefined,
+          phone: String(f.get("phone") || "") || undefined,
+          address: String(f.get("address") || "") || undefined,
+          stage: String(f.get("stage")),
+          notes: String(f.get("notes") || ""),
+          followUpAt: followUpAt || undefined,
+        },
+      });
+      const d = await refresh();
+      setCustomerDialog(false);
+      setEditCustomer(null);
+      const saved = d.customers.find((c) => c.id === r.id);
+      if (saved) setViewCustomer(saved);
+      toast.success(editCustomer ? "Customer updated" : "Customer added");
+    });
+  }
+  async function changeStage(customer: Customer, stage: string) {
+    await perform("stage", async () => {
+      await api("customer", {
+        customer: {
+          id: customer.id,
+          agent: customer.agent,
+          company: customer.company,
+          contactName: customer.contact_name,
+          email: customer.email || undefined,
+          phone: customer.phone || undefined,
+          address: customer.address || undefined,
+          stage,
+          notes: customer.notes,
+          followUpAt: customer.follow_up_at || undefined,
+        },
+      });
+      const d = await refresh();
+      setViewCustomer(d.customers.find((c) => c.id === customer.id) || null);
+    });
+  }
+  async function addActivity(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!viewCustomer || !activityNotes.trim()) return;
+    await perform("activity", async () => {
+      await api("customer_activity", {
+        activity: {
+          customerId: viewCustomer.id,
+          type: activityType,
+          notes: activityNotes,
+        },
+      });
+      const d = await refresh();
+      setViewCustomer(
+        d.customers.find((c) => c.id === viewCustomer.id) || null,
+      );
+      setActivityNotes("");
+      toast.success("Activity logged");
+    });
+  }
+  async function createDeliveryNote(quoteId: string) {
+    await perform("delivery-note", async () => {
+      const r = await api("delivery_note", { deliveryNote: { quoteId } });
+      const d = await refresh();
+      setViewDeliveryNote(d.deliveryNotes.find((n) => n.id === r.id) || null);
+      setDocTab("delivery");
+      setTab("documents");
+      toast.success("Delivery note created");
+    });
+  }
+  async function createInvoice(quoteId: string) {
+    await perform("invoice", async () => {
+      const r = await api("invoice", { invoice: { quoteId } });
+      const d = await refresh();
+      setViewInvoice(d.invoices.find((i) => i.id === r.id) || null);
+      setDocTab("invoice");
+      setTab("documents");
+      toast.success("Invoice created");
+    });
+  }
   const total = draft
     ? draft.lines.reduce((n, l) => n + l.quantity * l.unitBaisa, 0)
     : 0;
@@ -577,6 +716,14 @@ export default function Home() {
           <TabsTrigger value="inventory">
             <Package />
             Inventory
+          </TabsTrigger>
+          <TabsTrigger value="customers">
+            <Contact />
+            Customers
+          </TabsTrigger>
+          <TabsTrigger value="documents">
+            <Receipt />
+            Documents
           </TabsTrigger>
           <TabsTrigger value="studio">
             <Sparkles />
@@ -1015,6 +1162,24 @@ export default function Home() {
                     )}
                     disabled={!!busy}
                   />
+                  {view.status === "Accepted" && (
+                    <>
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() => void createDeliveryNote(view.id)}
+                      >
+                        <Truck size={16} /> Delivery note
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() => void createInvoice(view.id)}
+                      >
+                        <Receipt size={16} /> Invoice
+                      </button>
+                    </>
+                  )}
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
@@ -1339,6 +1504,563 @@ export default function Home() {
             )}
           </section>
         </TabsContent>
+        <TabsContent value="customers">
+          {viewCustomer ? (
+            <section className="panel">
+              <div className="section-head no-print">
+                <button
+                  className="text-button"
+                  onClick={() => setViewCustomer(null)}
+                >
+                  <ArrowLeft size={16} /> All customers
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setEditCustomer(viewCustomer);
+                    setCustomerDialog(true);
+                  }}
+                >
+                  Edit details
+                </button>
+              </div>
+              <div className="customer-detail">
+                <div>
+                  <p className="eyebrow">{viewCustomer.stage}</p>
+                  <h2>{viewCustomer.company}</h2>
+                  <p>{viewCustomer.contact_name}</p>
+                  <div className="stock-labels">
+                    {viewCustomer.phone && (
+                      <span>
+                        <Phone size={13} /> {viewCustomer.phone}
+                      </span>
+                    )}
+                    {viewCustomer.email && (
+                      <span>
+                        <Mail size={13} /> {viewCustomer.email}
+                      </span>
+                    )}
+                    {viewCustomer.follow_up_at && (
+                      <span>
+                        <CalendarClock size={13} /> Follow up{" "}
+                        {new Date(viewCustomer.follow_up_at).toLocaleDateString(
+                          "en-OM",
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  {viewCustomer.address && (
+                    <p className="helper preserve-lines">
+                      {viewCustomer.address}
+                    </p>
+                  )}
+                  {viewCustomer.notes && (
+                    <p className="helper preserve-lines">
+                      {viewCustomer.notes}
+                    </p>
+                  )}
+                </div>
+                <Choice
+                  value={viewCustomer.stage}
+                  onChange={(stage) => void changeStage(viewCustomer, stage)}
+                  placeholder="Pipeline stage"
+                  items={CRM_STAGES.map((s) => ({ id: s, name: s }))}
+                  disabled={!!busy}
+                />
+              </div>
+              <div className="section-head">
+                <h2>Activity</h2>
+              </div>
+              <form className="activity-form" onSubmit={addActivity}>
+                <Choice
+                  value={activityType}
+                  onChange={setActivityType}
+                  placeholder="Type"
+                  items={[
+                    { id: "call", name: "Call" },
+                    { id: "email", name: "Email" },
+                    { id: "meeting", name: "Meeting" },
+                    { id: "note", name: "Note" },
+                  ]}
+                />
+                <Field label="What happened?">
+                  <input
+                    value={activityNotes}
+                    onChange={(e) => setActivityNotes(e.target.value)}
+                    placeholder="Called about the delivery timeline"
+                    maxLength={2000}
+                  />
+                </Field>
+                <button
+                  className="secondary"
+                  disabled={!!busy || !activityNotes.trim()}
+                >
+                  <Plus size={16} /> Log activity
+                </button>
+              </form>
+              <div className="activity-feed">
+                {data.customerActivities.filter(
+                  (a) => a.customer_id === viewCustomer.id,
+                ).length ? (
+                  data.customerActivities
+                    .filter((a) => a.customer_id === viewCustomer.id)
+                    .map((a) => (
+                      <article className="activity-item" key={a.id}>
+                        <span className="badge">{a.type}</span>
+                        <p>{a.notes}</p>
+                        <small>
+                          {new Date(a.created).toLocaleString("en-OM")}
+                        </small>
+                      </article>
+                    ))
+                ) : (
+                  <Blank title="No activity yet">
+                    Log a call, email, meeting or note to keep track of this
+                    relationship.
+                  </Blank>
+                )}
+              </div>
+            </section>
+          ) : (
+            <section className="panel">
+              <div className="section-head">
+                <div>
+                  <h2>Customers</h2>
+                  <p className="helper">
+                    Track leads through your pipeline and keep a history of
+                    every conversation.
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setEditCustomer(null);
+                    setCustomerDialog(true);
+                  }}
+                >
+                  <Plus size={16} /> New customer
+                </button>
+              </div>
+              <div className="toolbar">
+                <div className="searchbox">
+                  <Search size={18} />
+                  <input
+                    aria-label="Search customers"
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    placeholder="Search company or contact"
+                  />
+                </div>
+                <Choice
+                  value={stageFilter}
+                  onChange={setStageFilter}
+                  placeholder="Pipeline stage"
+                  items={[
+                    { id: "all", name: "All stages" },
+                    ...CRM_STAGES.map((s) => ({ id: s, name: s })),
+                  ]}
+                />
+              </div>
+              {customerList.length ? (
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Stage</TableHead>
+                      <TableHead>Follow-up</TableHead>
+                      <TableHead>
+                        <span className="sr-only">Open</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {customerList.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="card-title">
+                          <strong>{c.company}</strong>
+                        </TableCell>
+                        <TableCell data-label="Contact">
+                          {c.contact_name}
+                        </TableCell>
+                        <TableCell data-label="Stage">
+                          <span className="badge">{c.stage}</span>
+                        </TableCell>
+                        <TableCell data-label="Follow-up">
+                          {c.follow_up_at
+                            ? new Date(c.follow_up_at).toLocaleDateString(
+                                "en-OM",
+                              )
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="card-actions">
+                          <button
+                            className="secondary"
+                            onClick={() => setViewCustomer(c)}
+                          >
+                            Open
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Blank title="Build your customer list">
+                  Add a customer to start tracking their journey through your
+                  pipeline.
+                </Blank>
+              )}
+            </section>
+          )}
+        </TabsContent>
+        <TabsContent value="documents">
+          {viewDeliveryNote ? (
+            <section className="panel">
+              <div className="section-head no-print">
+                <button
+                  className="text-button"
+                  onClick={() => setViewDeliveryNote(null)}
+                >
+                  <ArrowLeft size={16} /> All documents
+                </button>
+                <div className="actions">
+                  <Choice
+                    value={viewDeliveryNote.status}
+                    onChange={(status) =>
+                      void perform("dn-status", async () => {
+                        await api("delivery_note_status", {
+                          id: viewDeliveryNote.id,
+                          status,
+                        });
+                        const d = await refresh();
+                        setViewDeliveryNote(
+                          d.deliveryNotes.find(
+                            (n) => n.id === viewDeliveryNote.id,
+                          ) || null,
+                        );
+                      })
+                    }
+                    placeholder="Status"
+                    items={["Draft", "Delivered"].map((s) => ({
+                      id: s,
+                      name: s,
+                    }))}
+                    disabled={!!busy}
+                  />
+                  <button className="secondary" onClick={() => window.print()}>
+                    <Printer size={16} /> Print / PDF
+                  </button>
+                </div>
+              </div>
+              <div className="print-document">
+                <div className="document-heading">
+                  <div>
+                    <img
+                      className="quotation-logo"
+                      src="/mais-logo.png"
+                      alt="Mais company logo"
+                      width={100}
+                      height={100}
+                    />
+                    <p className="eyebrow">{data.settings.company}</p>
+                    <h2>
+                      Delivery Note DN-
+                      {String(viewDeliveryNote.number).padStart(4, "0")}
+                    </h2>
+                    <span className="badge">{viewDeliveryNote.status}</span>
+                  </div>
+                  <div>
+                    <small>Deliver to</small>
+                    <h2>{viewDeliveryNote.customer}</h2>
+                    {viewDeliveryNote.address && (
+                      <p className="preserve-lines">
+                        {viewDeliveryNote.address}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Quantity</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {viewDeliveryNote.lines.map((l, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="card-title">
+                          <strong>{l.name}</strong>
+                          <small>{l.sku}</small>
+                        </TableCell>
+                        <TableCell data-label="Quantity">
+                          {l.quantity}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {viewDeliveryNote.notes && (
+                  <p className="preserve-lines">{viewDeliveryNote.notes}</p>
+                )}
+                <p className="helper">
+                  Prepared by{" "}
+                  {
+                    data.agents.find((a) => a.id === viewDeliveryNote.agent)
+                      ?.name
+                  }{" "}
+                  ·{" "}
+                  {new Date(viewDeliveryNote.created).toLocaleDateString(
+                    "en-OM",
+                  )}
+                </p>
+              </div>
+            </section>
+          ) : viewInvoice ? (
+            <section className="panel">
+              <div className="section-head no-print">
+                <button
+                  className="text-button"
+                  onClick={() => setViewInvoice(null)}
+                >
+                  <ArrowLeft size={16} /> All documents
+                </button>
+                <div className="actions">
+                  <Choice
+                    value={viewInvoice.status}
+                    onChange={(status) =>
+                      void perform("inv-status", async () => {
+                        await api("invoice_status", {
+                          id: viewInvoice.id,
+                          status,
+                        });
+                        const d = await refresh();
+                        setViewInvoice(
+                          d.invoices.find((i) => i.id === viewInvoice.id) ||
+                            null,
+                        );
+                      })
+                    }
+                    placeholder="Status"
+                    items={["Draft", "Sent", "Paid", "Cancelled"].map(
+                      (s) => ({ id: s, name: s }),
+                    )}
+                    disabled={!!busy}
+                  />
+                  <button className="secondary" onClick={() => window.print()}>
+                    <Printer size={16} /> Print / PDF
+                  </button>
+                </div>
+              </div>
+              <div className="print-document">
+                <div className="document-heading">
+                  <div>
+                    <img
+                      className="quotation-logo"
+                      src="/mais-logo.png"
+                      alt="Mais company logo"
+                      width={100}
+                      height={100}
+                    />
+                    <p className="eyebrow">{data.settings.company}</p>
+                    <h2>
+                      Invoice INV-{String(viewInvoice.number).padStart(4, "0")}
+                    </h2>
+                    <span className="badge">{viewInvoice.status}</span>
+                    {data.settings.vat_number && (
+                      <small>VAT reg. {data.settings.vat_number}</small>
+                    )}
+                  </div>
+                  <div>
+                    <small>Billed to</small>
+                    <h2>{viewInvoice.customer}</h2>
+                    <p>{viewInvoice.email}</p>
+                    {viewInvoice.due_date && (
+                      <small>
+                        Due{" "}
+                        {new Date(viewInvoice.due_date).toLocaleDateString(
+                          "en-OM",
+                        )}
+                      </small>
+                    )}
+                  </div>
+                </div>
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Unit · OMR</TableHead>
+                      <TableHead>Total · OMR</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {viewInvoice.lines.map((l, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="card-title">
+                          <strong>{l.name}</strong>
+                          <small>{l.sku}</small>
+                        </TableCell>
+                        <TableCell data-label="Quantity">
+                          {l.quantity}
+                        </TableCell>
+                        <TableCell data-label="Unit · OMR">
+                          {money(l.unitBaisa)}
+                        </TableCell>
+                        <TableCell data-label="Total · OMR">
+                          {money(l.quantity * l.unitBaisa)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="invoice-summary">
+                  <div>
+                    <span>Subtotal</span>
+                    <strong>OMR {money(viewInvoice.subtotal)}</strong>
+                  </div>
+                  <div>
+                    <span>VAT ({(data.vatRate * 100).toFixed(0)}%)</span>
+                    <strong>OMR {money(viewInvoice.vat_baisa)}</strong>
+                  </div>
+                  <div className="invoice-summary-total">
+                    <span>Total due</span>
+                    <strong>OMR {money(viewInvoice.total)}</strong>
+                  </div>
+                </div>
+                {viewInvoice.notes && (
+                  <p className="preserve-lines">{viewInvoice.notes}</p>
+                )}
+                <p className="helper">
+                  Prepared by{" "}
+                  {data.agents.find((a) => a.id === viewInvoice.agent)?.name}{" "}
+                  · {new Date(viewInvoice.created).toLocaleDateString("en-OM")}
+                </p>
+              </div>
+            </section>
+          ) : (
+            <section className="panel">
+              <div className="section-head">
+                <h2>Documents</h2>
+                <div className="actions">
+                  <button
+                    className={docTab === "delivery" ? "primary" : "secondary"}
+                    onClick={() => setDocTab("delivery")}
+                  >
+                    <Truck size={16} /> Delivery notes
+                  </button>
+                  <button
+                    className={docTab === "invoice" ? "primary" : "secondary"}
+                    onClick={() => setDocTab("invoice")}
+                  >
+                    <Receipt size={16} /> Invoices
+                  </button>
+                </div>
+              </div>
+              <p className="helper">
+                Generate these from an accepted quotation, on its detail page.
+              </p>
+              {docTab === "delivery" ? (
+                deliveryList.length ? (
+                  <Table className="responsive-table">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Number</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>
+                          <span className="sr-only">Open</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {deliveryList.map((n) => (
+                        <TableRow key={n.id}>
+                          <TableCell className="card-title">
+                            DN-{String(n.number).padStart(4, "0")}
+                          </TableCell>
+                          <TableCell data-label="Customer">
+                            {n.customer}
+                          </TableCell>
+                          <TableCell data-label="Status">
+                            <span className="badge">{n.status}</span>
+                          </TableCell>
+                          <TableCell data-label="Date">
+                            {new Date(n.created).toLocaleDateString("en-OM")}
+                          </TableCell>
+                          <TableCell className="card-actions">
+                            <button
+                              className="secondary"
+                              onClick={() => setViewDeliveryNote(n)}
+                            >
+                              Open
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Blank title="No delivery notes yet">
+                    Open an accepted quotation and choose “Delivery note” to
+                    create one.
+                  </Blank>
+                )
+              ) : invoiceList.length ? (
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Number</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Total · OMR</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>
+                        <span className="sr-only">Open</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoiceList.map((i) => (
+                      <TableRow key={i.id}>
+                        <TableCell className="card-title">
+                          INV-{String(i.number).padStart(4, "0")}
+                        </TableCell>
+                        <TableCell data-label="Customer">
+                          {i.customer}
+                        </TableCell>
+                        <TableCell data-label="Total · OMR">
+                          {money(i.total)}
+                        </TableCell>
+                        <TableCell data-label="Status">
+                          <span className="badge">{i.status}</span>
+                        </TableCell>
+                        <TableCell data-label="Date">
+                          {new Date(i.created).toLocaleDateString("en-OM")}
+                        </TableCell>
+                        <TableCell className="card-actions">
+                          <button
+                            className="secondary"
+                            onClick={() => setViewInvoice(i)}
+                          >
+                            Open
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Blank title="No invoices yet">
+                  Open an accepted quotation and choose “Invoice” to create
+                  one.
+                </Blank>
+              )}
+            </section>
+          )}
+        </TabsContent>
         <TabsContent value="studio">
           <div className="studio-layout">
             <form className="panel" onSubmit={generateMockup}>
@@ -1464,6 +2186,7 @@ export default function Home() {
                     await api("settings", {
                       company: String(f.get("company")),
                       rate: Number(f.get("rate")),
+                      vatNumber: String(f.get("vatNumber") || "") || undefined,
                     });
                     await refresh();
                     toast.success("Settings saved");
@@ -1491,12 +2214,21 @@ export default function Home() {
                     required
                   />
                 </Field>
+                <Field label="VAT registration number (optional)">
+                  <input
+                    name="vatNumber"
+                    maxLength={50}
+                    defaultValue={data.settings.vat_number ?? ""}
+                    placeholder="Shown on printed invoices"
+                  />
+                </Field>
                 <p className="helper">
                   Supplier prices are in AED. The initial rate of 0.104699 is
                   indicative, based on currency pegs; it excludes bank fees.
                   Change it to your business costing rate. Existing quotations
                   keep their saved rate and prices. Selling prices are set
-                  separately.
+                  separately. Invoices add {(data.vatRate * 100).toFixed(0)}%
+                  Oman VAT automatically.
                 </p>
                 <button className="primary" disabled={!!busy}>
                   Save settings
@@ -1717,6 +2449,95 @@ export default function Home() {
                   : addToDraft
                     ? "Create and add to quotation"
                     : "Create product"}
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={customerDialog} onOpenChange={setCustomerDialog}>
+        <DialogContent>
+          <DialogTitle>
+            {editCustomer ? "Edit customer" : "New customer"}
+          </DialogTitle>
+          <DialogDescription>
+            {editCustomer
+              ? editCustomer.company
+              : "Add a company and contact to start tracking them through your pipeline."}
+          </DialogDescription>
+          <form onSubmit={saveCustomer} key={editCustomer?.id || "new"}>
+            <div className="form-grid">
+              <Field label="Company">
+                <input
+                  name="company"
+                  required
+                  maxLength={200}
+                  defaultValue={editCustomer?.company}
+                />
+              </Field>
+              <Field label="Contact name">
+                <input
+                  name="contactName"
+                  required
+                  maxLength={200}
+                  defaultValue={editCustomer?.contact_name}
+                />
+              </Field>
+            </div>
+            <div className="form-grid">
+              <Field label="Email (optional)">
+                <input
+                  name="email"
+                  type="email"
+                  defaultValue={editCustomer?.email ?? ""}
+                />
+              </Field>
+              <Field label="Phone (optional)">
+                <input
+                  name="phone"
+                  maxLength={50}
+                  defaultValue={editCustomer?.phone ?? ""}
+                />
+              </Field>
+            </div>
+            <Field label="Address (optional)">
+              <textarea
+                name="address"
+                rows={2}
+                maxLength={2000}
+                defaultValue={editCustomer?.address ?? ""}
+              />
+            </Field>
+            <div className="form-grid">
+              <Field label="Pipeline stage">
+                <select
+                  name="stage"
+                  className="choice"
+                  defaultValue={editCustomer?.stage ?? "New Lead"}
+                >
+                  {CRM_STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Follow up on (optional)">
+                <input
+                  name="followUpAt"
+                  type="date"
+                  defaultValue={editCustomer?.follow_up_at ?? ""}
+                />
+              </Field>
+            </div>
+            <Field label="Notes">
+              <textarea
+                name="notes"
+                rows={3}
+                maxLength={5000}
+                defaultValue={editCustomer?.notes ?? ""}
+              />
+            </Field>
+            <button className="primary wide" disabled={!!busy}>
+              {editCustomer ? "Save changes" : "Add customer"}
             </button>
           </form>
         </DialogContent>
