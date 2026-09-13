@@ -801,29 +801,6 @@ export default function Home() {
                       />
                     </Field>
                   </div>
-                  <div className="rate-row">
-                    <span>
-                      Currency <strong>OMR</strong>
-                    </span>
-                    <Field label="OMR per 1 AED">
-                      <input
-                        type="number"
-                        min="0.000001"
-                        max="100"
-                        step="0.000001"
-                        value={draft.rate || ""}
-                        disabled={!!draft.id}
-                        onChange={(e) =>
-                          setDraft({ ...draft, rate: Number(e.target.value) })
-                        }
-                      />
-                    </Field>
-                    <small>
-                      {draft.id
-                        ? "Saved rate retained for this quotation."
-                        : "Review the costing rate before saving."}
-                    </small>
-                  </div>
                 </div>
                 <section className="panel">
                   <div className="section-head">

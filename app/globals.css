@@ -414,18 +414,6 @@ small {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
-.rate-row {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-  border-top: 1px solid var(--border);
-  margin-top: 12px;
-  font-size: 14px;
-}
-.rate-row .field {
-  max-width: 160px;
-}
 .quote-line {
   padding: 20px 0;
   border-bottom: 1px solid var(--border);
