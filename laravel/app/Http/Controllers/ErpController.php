@@ -65,6 +65,7 @@ class ErpController extends Controller
             'aiConfigured' => (bool) config('erp.gemini_key'),
             'isAdmin' => $isAdmin,
             'userName' => $request->user()->name,
+            'userAgentId' => $agentId,
         ]);
     }
 

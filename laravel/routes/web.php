@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ErpController;
 use App\Http\Controllers\AiController;
 use App\Http\Controllers\MockupController;
+use App\Http\Controllers\MessagingController;
 
 Route::middleware('guest')->group(function () {
     Route::view('/login', 'login')->name('login');
@@ -20,4 +21,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/mockups', [MockupController::class, 'index']);
     Route::post('/api/mockups', [MockupController::class, 'store'])->middleware('throttle:5,1');
     Route::get('/api/assets', [MockupController::class, 'asset']);
+    Route::get('/api/messages', [MessagingController::class, 'index']);
+    Route::post('/api/messages', [MessagingController::class, 'store'])->middleware('throttle:20,1');
+    Route::get('/api/messages/thread', [MessagingController::class, 'thread']);
+    Route::post('/api/messages/send', [MessagingController::class, 'send'])->middleware('throttle:30,1');
+    Route::get('/api/messages/asset', [MessagingController::class, 'asset']);
 });

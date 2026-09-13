@@ -31,6 +31,11 @@ import {
   CheckCircle2,
   Circle,
   ImagePlus,
+  MessageCircle,
+  Paperclip,
+  SendHorizontal,
+  File as FileIcon,
+  X,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -96,6 +101,7 @@ type State = {
   aiConfigured: boolean;
   isAdmin: boolean;
   userName: string;
+  userAgentId: string;
 };
 type Draft = {
   id?: string;
@@ -114,6 +120,25 @@ type Mockup = {
   path: string;
   created?: string;
   quote_id?: string | null;
+};
+type DirectoryAgent = { id: string; name: string };
+type ConversationSummary = {
+  id: string;
+  isGroup: boolean;
+  title: string;
+  participants: { agentId: string; name: string }[];
+  lastMessage: { body: string | null; senderAgentId: string; created: string } | null;
+  unreadCount: number;
+  updated: string;
+};
+type MessageAttachment = { id: string; filename: string; mime: string; size: number };
+type ThreadMessage = {
+  id: string;
+  senderAgentId: string;
+  senderName: string;
+  body: string | null;
+  created: string;
+  attachments: MessageAttachment[];
 };
 const initial: State = {
   products: [],
@@ -134,6 +159,7 @@ const initial: State = {
   aiConfigured: false,
   isAdmin: false,
   userName: "",
+  userAgentId: "",
 };
 async function api(action: string, payload: object = {}) {
   const r = await request("/api/erp", {
@@ -188,6 +214,11 @@ function Choice({
 const csrfToken = () =>
   document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
     ?.content || "";
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 function Blank({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Empty className="empty">
@@ -233,6 +264,18 @@ export default function Home() {
     ),
     [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [mockupApproveDialog, setMockupApproveDialog] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[]>(
+      [],
+    ),
+    [directory, setDirectory] = useState<DirectoryAgent[]>([]),
+    [activeConversation, setActiveConversation] = useState<string | null>(
+      null,
+    ),
+    [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]),
+    [messageDraft, setMessageDraft] = useState(""),
+    [composeDialog, setComposeDialog] = useState(false),
+    [composeRecipients, setComposeRecipients] = useState<string[]>([]),
+    [messageFiles, setMessageFiles] = useState<File[]>([]);
   const refresh = useCallback(async () => {
     try {
       const r = await request("/api/erp");
@@ -285,6 +328,44 @@ export default function Home() {
       });
     return () => controller.abort();
   }, [agent]);
+  const loadConversations = useCallback(async () => {
+    try {
+      const r = await request("/api/messages");
+      const d = (await r.json()) as {
+        conversations: ConversationSummary[];
+        directory: DirectoryAgent[];
+        error?: string;
+      };
+      if (!r.ok) throw new Error(d.error || "Could not load messages");
+      setConversations(d.conversations);
+      setDirectory(d.directory);
+    } catch {
+      // silent: polling failure shouldn't interrupt the rest of the app
+    }
+  }, []);
+  const loadThread = useCallback(async (conversationId: string) => {
+    const r = await request(
+      "/api/messages/thread?conversation=" +
+        encodeURIComponent(conversationId),
+    );
+    const d = (await r.json()) as { messages: ThreadMessage[]; error?: string };
+    if (!r.ok) throw new Error(d.error || "Could not load this conversation");
+    setThreadMessages(d.messages);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    void loadConversations();
+    const id = setInterval(() => void loadConversations(), 8000);
+    return () => clearInterval(id);
+  }, [loaded, loadConversations]);
+  useEffect(() => {
+    if (tab !== "messages" || !activeConversation) return;
+    void loadThread(activeConversation).then(() => loadConversations());
+    const id = setInterval(() => {
+      void loadThread(activeConversation).then(() => loadConversations());
+    }, 5000);
+    return () => clearInterval(id);
+  }, [tab, activeConversation, loadThread, loadConversations]);
   useEffect(() => {
     const context = (
       document as Document & {
@@ -380,6 +461,10 @@ export default function Home() {
     data.invoices.some((i) => i.quote_id === quoteId);
   const mockupsForQuote = (q: Quote) =>
     mockups.filter((m) => q.lines.some((l) => l.productId === m.productId));
+  const totalUnread = conversations.reduce((n, c) => n + c.unreadCount, 0);
+  const activeConversationSummary = conversations.find(
+    (c) => c.id === activeConversation,
+  );
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -606,6 +691,43 @@ export default function Home() {
       toast.success("Mockup approved");
     });
   }
+  async function startConversation() {
+    if (!composeRecipients.length) return;
+    await perform("new-conversation", async () => {
+      const r = await request("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantIds: composeRecipients }),
+      });
+      const d = (await r.json()) as { id: string; error?: string };
+      if (!r.ok) throw new Error(d.error || "Could not start the conversation");
+      setComposeDialog(false);
+      setComposeRecipients([]);
+      await loadConversations();
+      setActiveConversation(d.id);
+    });
+  }
+  async function sendMessage(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!activeConversation) return;
+    if (!messageDraft.trim() && messageFiles.length === 0) return;
+    await perform("send-message", async () => {
+      const payload = new FormData();
+      payload.set("conversationId", activeConversation);
+      if (messageDraft.trim()) payload.set("body", messageDraft.trim());
+      messageFiles.forEach((f) => payload.append("attachments[]", f));
+      const r = await request("/api/messages/send", {
+        method: "POST",
+        body: payload,
+      });
+      const d = (await r.json()) as { id: string; error?: string };
+      if (!r.ok) throw new Error(d.error || "Could not send the message");
+      setMessageDraft("");
+      setMessageFiles([]);
+      await loadThread(activeConversation);
+      await loadConversations();
+    });
+  }
   async function createDeliveryNote(quoteId: string) {
     await perform("delivery-note", async () => {
       const r = await api("delivery_note", { deliveryNote: { quoteId } });
@@ -749,6 +871,13 @@ export default function Home() {
           <TabsTrigger value="studio">
             <Sparkles />
             Mockup studio
+          </TabsTrigger>
+          <TabsTrigger value="messages">
+            <MessageCircle />
+            Messages
+            {totalUnread > 0 && (
+              <span className="unread-dot">{totalUnread}</span>
+            )}
           </TabsTrigger>
           <TabsTrigger value="settings">
             <Settings />
@@ -2226,6 +2355,191 @@ export default function Home() {
             </section>
           </div>
         </TabsContent>
+        <TabsContent value="messages">
+          <div className="messages-layout">
+            <aside className="conversation-list panel">
+              <div className="section-head">
+                <h2>Messages</h2>
+                <button
+                  className="secondary"
+                  onClick={() => setComposeDialog(true)}
+                >
+                  <Plus size={16} /> New
+                </button>
+              </div>
+              {conversations.length ? (
+                <div className="conversation-items">
+                  {conversations.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={
+                        "conversation-item" +
+                        (c.id === activeConversation ? " active" : "")
+                      }
+                      onClick={() => setActiveConversation(c.id)}
+                    >
+                      <div className="conversation-item-head">
+                        <strong>{c.title || "Conversation"}</strong>
+                        {c.unreadCount > 0 && (
+                          <span className="unread-dot">{c.unreadCount}</span>
+                        )}
+                      </div>
+                      <p>
+                        {c.lastMessage
+                          ? (c.lastMessage.senderAgentId === data.userAgentId
+                              ? "You: "
+                              : "") +
+                            (c.lastMessage.body || "Sent an attachment")
+                          : "No messages yet"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Blank title="No conversations yet">
+                  Start a conversation with a teammate to share updates and
+                  files.
+                </Blank>
+              )}
+            </aside>
+            <section className="thread panel">
+              {activeConversation && activeConversationSummary ? (
+                <>
+                  <div className="section-head">
+                    <h2>{activeConversationSummary.title || "Conversation"}</h2>
+                  </div>
+                  <div className="thread-messages">
+                    {threadMessages.length ? (
+                      threadMessages.map((m) => (
+                        <div
+                          key={m.id}
+                          className={
+                            "message-bubble" +
+                            (m.senderAgentId === data.userAgentId
+                              ? " mine"
+                              : "")
+                          }
+                        >
+                          <div className="message-meta">
+                            <strong>
+                              {m.senderAgentId === data.userAgentId
+                                ? "You"
+                                : m.senderName}
+                            </strong>
+                            <span>
+                              {new Date(m.created).toLocaleString("en-OM")}
+                            </span>
+                          </div>
+                          {m.body && <p>{m.body}</p>}
+                          {m.attachments.length > 0 && (
+                            <div className="message-attachments">
+                              {m.attachments.map((a) =>
+                                a.mime.startsWith("image/") ? (
+                                  <a
+                                    key={a.id}
+                                    href={
+                                      "/api/messages/asset?id=" +
+                                      encodeURIComponent(a.id)
+                                    }
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <img
+                                      src={
+                                        "/api/messages/asset?id=" +
+                                        encodeURIComponent(a.id)
+                                      }
+                                      alt={a.filename}
+                                    />
+                                  </a>
+                                ) : (
+                                  <a
+                                    key={a.id}
+                                    className="message-file"
+                                    href={
+                                      "/api/messages/asset?id=" +
+                                      encodeURIComponent(a.id)
+                                    }
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <FileIcon size={16} />
+                                    {a.filename}
+                                    <small>{formatBytes(a.size)}</small>
+                                  </a>
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <Blank title="Say hello">
+                        Send the first message in this conversation.
+                      </Blank>
+                    )}
+                  </div>
+                  <form className="thread-compose" onSubmit={sendMessage}>
+                    {messageFiles.length > 0 && (
+                      <div className="compose-files">
+                        {messageFiles.map((f, idx) => (
+                          <span key={idx} className="compose-file-chip">
+                            {f.name}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMessageFiles((files) =>
+                                  files.filter((_, i) => i !== idx),
+                                )
+                              }
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="thread-compose-row">
+                      <label className="attach-button">
+                        <Paperclip size={18} />
+                        <input
+                          type="file"
+                          multiple
+                          hidden
+                          onChange={(e) => {
+                            const picked = Array.from(e.target.files || []);
+                            setMessageFiles((files) =>
+                              [...files, ...picked].slice(0, 3),
+                            );
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      <input
+                        value={messageDraft}
+                        onChange={(e) => setMessageDraft(e.target.value)}
+                        placeholder="Write a message"
+                        maxLength={4000}
+                      />
+                      <button
+                        className="primary"
+                        disabled={!!busy}
+                        type="submit"
+                      >
+                        <SendHorizontal size={18} />
+                      </button>
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <Blank title="Select a conversation">
+                  Choose a conversation on the left, or start a new one.
+                </Blank>
+              )}
+            </section>
+          </div>
+        </TabsContent>
         <TabsContent value="settings">
           <div className="settings-grid">
             {data.isAdmin ? (
@@ -2645,6 +2959,59 @@ export default function Home() {
                 <Sparkles size={16} /> Open Mockup studio
               </button>
             </Empty>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={composeDialog}
+        onOpenChange={(open) => {
+          setComposeDialog(open);
+          if (!open) setComposeRecipients([]);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>New message</DialogTitle>
+          <DialogDescription>
+            Pick who to message. Select more than one person to start a group
+            conversation.
+          </DialogDescription>
+          {directory.length ? (
+            <div className="recipient-list">
+              {directory.map((p) => (
+                <label key={p.id} className="recipient-row">
+                  <input
+                    type="checkbox"
+                    checked={composeRecipients.includes(p.id)}
+                    onChange={(e) =>
+                      setComposeRecipients((ids) =>
+                        e.target.checked
+                          ? [...ids, p.id]
+                          : ids.filter((id) => id !== p.id),
+                      )
+                    }
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>No other staff accounts yet</EmptyTitle>
+                <EmptyDescription>
+                  Add a sign-in email for another agent to message them.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+          {directory.length > 0 && (
+            <button
+              className="primary wide"
+              disabled={!!busy || composeRecipients.length === 0}
+              onClick={() => void startConversation()}
+            >
+              <MessageCircle size={16} /> Start conversation
+            </button>
           )}
         </DialogContent>
       </Dialog>
