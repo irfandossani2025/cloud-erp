@@ -28,6 +28,9 @@ import {
   Phone,
   Mail,
   CalendarClock,
+  CheckCircle2,
+  Circle,
+  ImagePlus,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -106,9 +109,11 @@ type Draft = {
 };
 type Mockup = {
   id: string;
+  productId: string;
   productName: string;
   path: string;
   created?: string;
+  quote_id?: string | null;
 };
 const initial: State = {
   products: [],
@@ -227,6 +232,7 @@ export default function Home() {
       null,
     ),
     [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const [mockupApproveDialog, setMockupApproveDialog] = useState(false);
   const refresh = useCallback(async () => {
     try {
       const r = await request("/api/erp");
@@ -368,6 +374,12 @@ export default function Home() {
   );
   const deliveryList = data.deliveryNotes.filter((n) => n.agent === agent);
   const invoiceList = data.invoices.filter((i) => i.agent === agent);
+  const hasDeliveryNote = (quoteId: string) =>
+    data.deliveryNotes.some((n) => n.quote_id === quoteId);
+  const hasInvoice = (quoteId: string) =>
+    data.invoices.some((i) => i.quote_id === quoteId);
+  const mockupsForQuote = (q: Quote) =>
+    mockups.filter((m) => q.lines.some((l) => l.productId === m.productId));
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -583,6 +595,15 @@ export default function Home() {
       );
       setActivityNotes("");
       toast.success("Activity logged");
+    });
+  }
+  async function approveMockup(quoteId: string, generationId: string) {
+    await perform("mockup-approve", async () => {
+      await api("mockup_approve", { mockup: { quoteId, generationId } });
+      const d = await refresh();
+      setView(d.quotes.find((q) => q.id === quoteId) || null);
+      setMockupApproveDialog(false);
+      toast.success("Mockup approved");
     });
   }
   async function createDeliveryNote(quoteId: string) {
@@ -1162,8 +1183,18 @@ export default function Home() {
                     )}
                     disabled={!!busy}
                   />
-                  {view.status === "Accepted" && (
-                    <>
+                  {view.status === "Accepted" &&
+                    view.mockup_status !== "Approved" && (
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() => setMockupApproveDialog(true)}
+                      >
+                        <ImagePlus size={16} /> Approve mockup
+                      </button>
+                    )}
+                  {view.status === "Accepted" &&
+                    view.mockup_status === "Approved" && (
                       <button
                         className="secondary"
                         disabled={!!busy}
@@ -1171,6 +1202,10 @@ export default function Home() {
                       >
                         <Truck size={16} /> Delivery note
                       </button>
+                    )}
+                  {view.status === "Accepted" &&
+                    view.mockup_status === "Approved" &&
+                    hasDeliveryNote(view.id) && (
                       <button
                         className="secondary"
                         disabled={!!busy}
@@ -1178,13 +1213,54 @@ export default function Home() {
                       >
                         <Receipt size={16} /> Invoice
                       </button>
-                    </>
-                  )}
+                    )}
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
                 </div>
               </div>
+              {view.status === "Accepted" && (
+                <div className="pipeline no-print">
+                  <span
+                    className={
+                      "pipeline-step" +
+                      (view.mockup_status === "Approved" ? " done" : "")
+                    }
+                  >
+                    {view.mockup_status === "Approved" ? (
+                      <CheckCircle2 size={14} />
+                    ) : (
+                      <Circle size={14} />
+                    )}
+                    Mockup approved
+                  </span>
+                  <span
+                    className={
+                      "pipeline-step" +
+                      (hasDeliveryNote(view.id) ? " done" : "")
+                    }
+                  >
+                    {hasDeliveryNote(view.id) ? (
+                      <CheckCircle2 size={14} />
+                    ) : (
+                      <Circle size={14} />
+                    )}
+                    Delivery note
+                  </span>
+                  <span
+                    className={
+                      "pipeline-step" + (hasInvoice(view.id) ? " done" : "")
+                    }
+                  >
+                    {hasInvoice(view.id) ? (
+                      <CheckCircle2 size={14} />
+                    ) : (
+                      <Circle size={14} />
+                    )}
+                    Invoice
+                  </span>
+                </div>
+              )}
               <div className="print-document">
                 <div className="document-heading">
                   <div>
@@ -2540,6 +2616,59 @@ export default function Home() {
               {editCustomer ? "Save changes" : "Add customer"}
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={mockupApproveDialog}
+        onOpenChange={setMockupApproveDialog}
+      >
+        <DialogContent>
+          <DialogTitle>Approve a mockup</DialogTitle>
+          <DialogDescription>
+            Pick the mockup the customer signed off on. This unlocks the
+            delivery note and invoice for this quotation.
+          </DialogDescription>
+          {view && mockupsForQuote(view).length ? (
+            <div className="mockup-grid">
+              {mockupsForQuote(view).map((m) => (
+                <article key={m.id}>
+                  <img
+                    src={"/api/assets?path=" + encodeURIComponent(m.path)}
+                    alt={"Branded mockup of " + m.productName}
+                  />
+                  <div className="section-head">
+                    <strong>{m.productName}</strong>
+                    <button
+                      className="primary"
+                      disabled={!!busy}
+                      onClick={() => void approveMockup(view.id, m.id)}
+                    >
+                      <Check size={16} /> Use this
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>No mockups yet for these products</EmptyTitle>
+                <EmptyDescription>
+                  Generate one in Mockup studio, then come back here to
+                  approve it.
+                </EmptyDescription>
+              </EmptyHeader>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setMockupApproveDialog(false);
+                  setTab("studio");
+                }}
+              >
+                <Sparkles size={16} /> Open Mockup studio
+              </button>
+            </Empty>
+          )}
         </DialogContent>
       </Dialog>
     </main>

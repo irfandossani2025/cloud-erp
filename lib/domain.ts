@@ -39,6 +39,9 @@ export type Quote = {
   created: string;
   updated: string;
   revision: number;
+  mockup_status: string;
+  mockup_generation_id: string | null;
+  mockup_approved_at: string | null;
 };
 export const CRM_STAGES = [
   "New Lead",

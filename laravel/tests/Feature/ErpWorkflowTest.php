@@ -239,6 +239,22 @@ class ErpWorkflowTest extends TestCase
         $this->assertSame('Discussed pricing', $view['customerActivities'][0]['notes']);
     }
 
+    private function approveMockup(User $agent, string $agentId, string $productId, string $quoteId): string
+    {
+        $genId = (string) Str::uuid();
+        DB::table('generations')->insert([
+            'id' => $genId, 'agent' => $agentId, 'kind' => 'mockup', 'prompt' => 'test',
+            'result' => json_encode(['productId' => $productId, 'productName' => 'Test Product', 'path' => 'mockups/'.$genId.'.png']),
+            'created' => now()->toIso8601String(),
+        ]);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'mockup_approve',
+            'mockup' => ['quoteId' => $quoteId, 'generationId' => $genId],
+        ])->assertOk();
+
+        return $genId;
+    }
+
     public function test_delivery_note_requires_an_accepted_quote(): void
     {
         [$agent, $agentId] = $this->makeAgent('Agent One');
@@ -253,11 +269,67 @@ class ErpWorkflowTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_delivery_note_requires_mockup_approval(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertStatus(422);
+    }
+
+    public function test_mockup_can_be_approved_and_unlocks_the_delivery_note(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $genId = $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'mockup_status' => 'Approved', 'mockup_generation_id' => $genId]);
+        $this->assertDatabaseHas('generations', ['id' => $genId, 'quote_id' => $quoteId]);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+    }
+
+    public function test_agent_cannot_approve_a_mockup_owned_by_another_agent(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [, $agentBId] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agentA, $agentAId, $productId);
+        $genId = (string) Str::uuid();
+        DB::table('generations')->insert([
+            'id' => $genId, 'agent' => $agentBId, 'kind' => 'mockup', 'prompt' => 'test',
+            'result' => json_encode(['productId' => $productId, 'productName' => 'Test Product', 'path' => 'mockups/'.$genId.'.png']),
+            'created' => now()->toIso8601String(),
+        ]);
+        $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'mockup_approve',
+            'mockup' => ['quoteId' => $quoteId, 'generationId' => $genId],
+        ])->assertForbidden();
+    }
+
+    public function test_invoice_requires_a_delivery_note_to_exist(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice',
+            'invoice' => ['quoteId' => $quoteId],
+        ])->assertStatus(422);
+    }
+
     public function test_delivery_note_and_invoice_can_be_created_from_an_accepted_quote(): void
     {
         [$agent, $agentId] = $this->makeAgent('Agent One');
         $productId = $this->makeProduct();
         $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId, unitBaisa: 1000, quantity: 2);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
 
         $dnId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'delivery_note',
@@ -290,6 +362,11 @@ class ErpWorkflowTest extends TestCase
         [$agent, $agentId] = $this->makeAgent('Agent One');
         $productId = $this->makeProduct();
         $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
         $invId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'invoice',
             'invoice' => ['quoteId' => $quoteId],

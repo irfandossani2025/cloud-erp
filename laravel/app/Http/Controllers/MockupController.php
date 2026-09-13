@@ -20,7 +20,7 @@ class MockupController extends Controller
         $this->access->agent($request, $agent);
         $rows = DB::table('generations')
             ->where('agent', $agent)->where('kind', 'mockup')
-            ->orderByDesc('created')->limit(30)->get(['id', 'result', 'created']);
+            ->orderByDesc('created')->limit(30)->get(['id', 'result', 'created', 'quote_id']);
         return response()->json($rows->map(fn ($r) => [...(array) $r, ...json_decode($r->result, true)]));
     }
 
