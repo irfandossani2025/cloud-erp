@@ -41,6 +41,11 @@ class ErpWorkflowTest extends TestCase
         return $id;
     }
 
+    private function companyId(): string
+    {
+        return (string) DB::table('companies')->value('id');
+    }
+
     private function makePricingUser(): User
     {
         $agentId = (string) Str::uuid();
@@ -68,7 +73,7 @@ class ErpWorkflowTest extends TestCase
         $id = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => $quantity]],
             ],
         ])->json('id');
@@ -100,6 +105,7 @@ class ErpWorkflowTest extends TestCase
             'action' => 'quote',
             'quote' => [
                 'agent' => $agentId,
+                'companyId' => $this->companyId(),
                 'customer' => 'Acme',
                 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 2, 'unitBaisa' => 1000]],
@@ -114,7 +120,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 2]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 2]]],
         ])->json('id');
         $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
             'action' => 'quote_price',
@@ -130,7 +136,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agentB)->postJson('/api/erp', [
             'action' => 'quote_price',
@@ -144,7 +150,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'status', 'id' => $quoteId, 'revision' => 1, 'status' => 'Accepted',
@@ -158,7 +164,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
             'action' => 'quote_price',
@@ -167,14 +173,14 @@ class ErpWorkflowTest extends TestCase
 
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
+            'quote' => ['id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
         ])->assertOk();
         $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 1000]);
 
         $this->actingAs($admin)->postJson('/api/erp', ['action' => 'quote_unlock_price', 'id' => $quoteId])->assertOk();
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['id' => $quoteId, 'revision' => 3, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
+            'quote' => ['id' => $quoteId, 'revision' => 3, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
         ])->assertOk();
         $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 9999, 'pricing_status' => 'Priced']);
     }
@@ -186,7 +192,7 @@ class ErpWorkflowTest extends TestCase
         $productB = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productA, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productA, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
             'action' => 'quote_price',
@@ -195,7 +201,7 @@ class ErpWorkflowTest extends TestCase
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productA, 'quantity' => 1], ['productId' => $productB, 'quantity' => 1]],
             ],
         ])->assertOk();
@@ -211,6 +217,7 @@ class ErpWorkflowTest extends TestCase
             'action' => 'quote',
             'quote' => [
                 'agent' => $agentBId,
+                'companyId' => $this->companyId(),
                 'customer' => 'Acme',
                 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]],
@@ -243,21 +250,21 @@ class ErpWorkflowTest extends TestCase
         $id = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]],
             ],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'id' => $id, 'revision' => 1, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'id' => $id, 'revision' => 1, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 2, 'unitBaisa' => 1000]],
             ],
         ])->assertOk();
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'id' => $id, 'revision' => 1, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'id' => $id, 'revision' => 1, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 3, 'unitBaisa' => 1000]],
             ],
         ])->assertStatus(409);
@@ -272,7 +279,7 @@ class ErpWorkflowTest extends TestCase
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
-                'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
                 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]],
             ],
         ])->assertOk();
@@ -365,7 +372,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $draftId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]]],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'delivery_note',
@@ -547,7 +554,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote_outcome', 'id' => $quoteId, 'outcome' => 'Lost', 'reason' => 'Chose a competitor',
@@ -561,7 +568,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote_outcome', 'id' => $quoteId, 'outcome' => 'OnHold',
@@ -585,7 +592,7 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote_outcome', 'id' => $quoteId, 'outcome' => 'OnHold', 'reason' => 'Waiting on budget approval',
@@ -603,10 +610,60 @@ class ErpWorkflowTest extends TestCase
         $productId = $this->makeProduct();
         $quoteId = $this->actingAs($agentA)->postJson('/api/erp', [
             'action' => 'quote',
-            'quote' => ['agent' => $agentAId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+            'quote' => ['agent' => $agentAId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
         ])->json('id');
         $this->actingAs($agentB)->postJson('/api/erp', [
             'action' => 'quote_outcome', 'id' => $quoteId, 'outcome' => 'Won',
         ])->assertForbidden();
+    }
+
+    public function test_a_quote_requires_a_valid_company(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'companyId' => (string) Str::uuid(), 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+        ])->assertStatus(422);
+    }
+
+    public function test_delivery_note_and_invoice_inherit_the_quotes_company(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $mugdiId = DB::table('companies')->where('key', 'mugdi')->value('id');
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'companyId' => $mugdiId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productId, 'unitBaisa' => 1000]]],
+        ])->assertOk();
+        DB::table('quotes')->where('id', $quoteId)->update(['status' => 'Accepted']);
+
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->assertDatabaseHas('delivery_notes', ['id' => $dnId, 'company_id' => $mugdiId]);
+
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'company_id' => $mugdiId]);
+    }
+
+    public function test_only_an_admin_can_update_a_companys_vat_number(): void
+    {
+        [$agent] = $this->makeAgent('Agent One');
+        [$admin] = $this->makeAgent('Admin User', true);
+        $companyId = $this->companyId();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'company_update', 'id' => $companyId, 'vatNumber' => 'OM123456789',
+        ])->assertForbidden();
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'company_update', 'id' => $companyId, 'vatNumber' => 'OM123456789',
+        ])->assertOk();
+        $this->assertDatabaseHas('companies', ['id' => $companyId, 'vat_number' => 'OM123456789']);
     }
 }

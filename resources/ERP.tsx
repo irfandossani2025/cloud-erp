@@ -85,12 +85,14 @@ import {
   type CustomerActivity,
   type DeliveryNote,
   type Invoice,
+  type Company,
 } from "@/lib/domain";
 type Agent = { id: string; name: string };
 type State = {
   products: Product[];
   quotes: Quote[];
   agents: Agent[];
+  companies: Company[];
   customers: Customer[];
   customerActivities: CustomerActivity[];
   deliveryNotes: DeliveryNote[];
@@ -113,6 +115,7 @@ type Draft = {
   id?: string;
   revision?: number;
   agent: string;
+  companyId: string;
   customer: string;
   email: string;
   notes: string;
@@ -152,6 +155,7 @@ const initial: State = {
   products: [],
   quotes: [],
   agents: [],
+  companies: [],
   customers: [],
   customerActivities: [],
   deliveryNotes: [],
@@ -483,6 +487,15 @@ export default function Home() {
   );
   const agentName = (id: string) =>
     data.agents.find((a) => a.id === id)?.name || "Unknown agent";
+  const companyFor = (id: string): Company =>
+    data.companies.find((c) => c.id === id) || {
+      id: "",
+      key: "",
+      name: data.settings.company,
+      trading_name: null,
+      vat_number: null,
+      logo_path: "/mais-logo.png",
+    };
   const todayIso = new Date().toISOString().slice(0, 10);
   const isOverdue = (i: Invoice) =>
     i.status !== "Paid" &&
@@ -522,8 +535,10 @@ export default function Home() {
       toast.info("Add a sales agent to create quotations.");
       return;
     }
+    const lastQuote = data.quotes.find((q) => q.agent === agent);
     setDraft({
       agent,
+      companyId: lastQuote?.company_id || data.companies[0]?.id || "",
       customer: "",
       email: "",
       notes: "",
@@ -1044,7 +1059,22 @@ export default function Home() {
                     </button>
                   </div>
                   <div className="form-grid">
-                    <Field label="Company / customer">
+                    <Field label="Issuing company">
+                      <Choice
+                        value={draft.companyId}
+                        onChange={(companyId) =>
+                          setDraft({ ...draft, companyId })
+                        }
+                        placeholder="Select a company"
+                        items={data.companies.map((c) => ({
+                          id: c.id,
+                          name: c.trading_name
+                            ? `${c.name} (${c.trading_name})`
+                            : c.name,
+                        }))}
+                      />
+                    </Field>
+                    <Field label="Customer company name">
                       <input
                         value={draft.customer}
                         onChange={(e) =>
@@ -1238,6 +1268,7 @@ export default function Home() {
                         !!busy ||
                         !draft.lines.length ||
                         !draft.customer.trim() ||
+                        !draft.companyId ||
                         !draft.rate
                       }
                       onClick={() => void saveDraft()}
@@ -1419,6 +1450,7 @@ export default function Home() {
                           id: view.id,
                           revision: view.revision,
                           agent: view.agent,
+                          companyId: view.company_id,
                           customer: view.customer,
                           email: view.email,
                           notes: view.notes,
@@ -1573,12 +1605,15 @@ export default function Home() {
                   <div>
                     <img
                       className="quotation-logo"
-                      src="/mais-logo.png"
-                      alt="Mais company logo"
+                      src={companyFor(view.company_id).logo_path}
+                      alt={companyFor(view.company_id).name + " logo"}
                       width={100}
                       height={100}
                     />
-                    <p className="eyebrow">{data.settings.company}</p>
+                    <p className="eyebrow">
+                      {companyFor(view.company_id).trading_name ||
+                        companyFor(view.company_id).name}
+                    </p>
                     <h2>Quotation Q-{String(view.number).padStart(4, "0")}</h2>
                     <span className="badge">{view.status}</span>
                   </div>
@@ -1663,6 +1698,7 @@ export default function Home() {
                       <TableRow>
                         <TableHead>Quotation</TableHead>
                         <TableHead>Customer</TableHead>
+                        <TableHead>Company</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Subtotal · OMR</TableHead>
@@ -1684,6 +1720,10 @@ export default function Home() {
                           </TableCell>
                           <TableCell data-label="Customer">
                             {q.customer}
+                          </TableCell>
+                          <TableCell data-label="Company">
+                            {companyFor(q.company_id).trading_name ||
+                              companyFor(q.company_id).name}
                           </TableCell>
                           <TableCell data-label="Date">
                             {new Date(q.created).toLocaleDateString("en-OM")}
@@ -2166,12 +2206,15 @@ export default function Home() {
                   <div>
                     <img
                       className="quotation-logo"
-                      src="/mais-logo.png"
-                      alt="Mais company logo"
+                      src={companyFor(viewDeliveryNote.company_id).logo_path}
+                      alt={companyFor(viewDeliveryNote.company_id).name + " logo"}
                       width={100}
                       height={100}
                     />
-                    <p className="eyebrow">{data.settings.company}</p>
+                    <p className="eyebrow">
+                      {companyFor(viewDeliveryNote.company_id).trading_name ||
+                        companyFor(viewDeliveryNote.company_id).name}
+                    </p>
                     <h2>
                       Delivery Note DN-
                       {String(viewDeliveryNote.number).padStart(4, "0")}
@@ -2266,18 +2309,23 @@ export default function Home() {
                   <div>
                     <img
                       className="quotation-logo"
-                      src="/mais-logo.png"
-                      alt="Mais company logo"
+                      src={companyFor(viewInvoice.company_id).logo_path}
+                      alt={companyFor(viewInvoice.company_id).name + " logo"}
                       width={100}
                       height={100}
                     />
-                    <p className="eyebrow">{data.settings.company}</p>
+                    <p className="eyebrow">
+                      {companyFor(viewInvoice.company_id).trading_name ||
+                        companyFor(viewInvoice.company_id).name}
+                    </p>
                     <h2>
                       Invoice INV-{String(viewInvoice.number).padStart(4, "0")}
                     </h2>
                     <span className="badge">{viewInvoice.status}</span>
-                    {data.settings.vat_number && (
-                      <small>VAT reg. {data.settings.vat_number}</small>
+                    {companyFor(viewInvoice.company_id).vat_number && (
+                      <small>
+                        VAT reg. {companyFor(viewInvoice.company_id).vat_number}
+                      </small>
                     )}
                   </div>
                   <div>
@@ -3109,6 +3157,77 @@ export default function Home() {
                 </p>
               </section>
             )}
+            <section className="panel">
+              <h2>Companies</h2>
+              <p className="helper">
+                An agent picks one of these when creating a quotation. It
+                decides the logo and legal name shown on that quotation, its
+                delivery note and its invoice.
+              </p>
+              {data.companies.map((c) =>
+                data.isAdmin ? (
+                  <form
+                    key={c.id}
+                    className="company-row"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const f = new FormData(e.currentTarget);
+                      void perform("company-" + c.id, async () => {
+                        await api("company_update", {
+                          id: c.id,
+                          vatNumber:
+                            String(f.get("vatNumber") || "") || undefined,
+                        });
+                        await refresh();
+                        toast.success("Company updated");
+                      });
+                    }}
+                  >
+                    <img
+                      className="company-row-logo"
+                      src={c.logo_path}
+                      alt=""
+                      width={40}
+                      height={40}
+                    />
+                    <div className="company-row-name">
+                      <strong>{c.name}</strong>
+                      {c.trading_name && (
+                        <small>Trading as {c.trading_name}</small>
+                      )}
+                    </div>
+                    <input
+                      name="vatNumber"
+                      defaultValue={c.vat_number ?? ""}
+                      placeholder="VAT registration number"
+                      maxLength={50}
+                    />
+                    <button className="secondary" disabled={!!busy}>
+                      Save
+                    </button>
+                  </form>
+                ) : (
+                  <div key={c.id} className="company-row">
+                    <img
+                      className="company-row-logo"
+                      src={c.logo_path}
+                      alt=""
+                      width={40}
+                      height={40}
+                    />
+                    <div className="company-row-name">
+                      <strong>{c.name}</strong>
+                      {c.trading_name && (
+                        <small>Trading as {c.trading_name}</small>
+                      )}
+                    </div>
+                    {c.vat_number && (
+                      <small>VAT reg. {c.vat_number}</small>
+                    )}
+                  </div>
+                ),
+              )}
+            </section>
             {data.isAdmin && (
               <section className="panel">
                 <h2>Sales agents</h2>

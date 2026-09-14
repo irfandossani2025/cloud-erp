@@ -605,6 +605,36 @@ th {
 .agent-row .badge {
   margin-left: auto;
 }
+.company-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+}
+.company-row-logo {
+  border-radius: 8px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.company-row-name {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.company-row input {
+  width: 200px;
+  flex: 0 0 auto;
+}
+@media (max-width: 600px) {
+  .company-row {
+    flex-wrap: wrap;
+  }
+  .company-row input {
+    width: 100%;
+  }
+}
 .connection {
   display: flex;
   align-items: center;

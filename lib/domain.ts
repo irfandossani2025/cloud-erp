@@ -16,6 +16,14 @@ export type Product = {
   sale_baisa: number | null;
   cost_baisa: number;
 };
+export type Company = {
+  id: string;
+  key: string;
+  name: string;
+  trading_name: string | null;
+  vat_number: string | null;
+  logo_path: string;
+};
 export type Line = {
   productId: string;
   name: string;
@@ -29,6 +37,7 @@ export type Quote = {
   id: string;
   number: number;
   agent: string;
+  company_id: string;
   customer: string;
   email: string;
   notes: string;
@@ -91,6 +100,7 @@ export type DeliveryNote = {
   number: number;
   quote_id: string;
   agent: string;
+  company_id: string;
   customer: string;
   address: string;
   lines: DeliveryLine[];
@@ -111,6 +121,7 @@ export type Invoice = {
   number: number;
   quote_id: string;
   agent: string;
+  company_id: string;
   customer: string;
   email: string;
   lines: InvoiceLine[];

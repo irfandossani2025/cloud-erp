@@ -42,6 +42,7 @@ class ErpController extends Controller
         }
 
         $settings = DB::table('settings')->where('id', 1)->first();
+        $companies = DB::table('companies')->orderBy('name')->get();
         $products = DB::table('products')->orderBy('name')->get();
         if (!$canSeeCost) {
             $products = $products->map(function ($p) {
@@ -63,6 +64,7 @@ class ErpController extends Controller
                 return [...(array) $q, 'rate' => (float) $q->rate, 'lines' => $lines];
             }),
             'agents' => $agents->get(),
+            'companies' => $companies,
             'customers' => $customers->get(),
             'customerActivities' => $activities->get(),
             'deliveryNotes' => $deliveryNotes->get()->map(fn ($d) => [...(array) $d, 'lines' => json_decode($d->lines, true)]),
@@ -81,7 +83,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment',
+            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,company_update',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -125,6 +127,11 @@ class ErpController extends Controller
         if ($action === 'settings') {
             $v = $request->validate(['rate' => 'required|numeric|gt:0|max:100', 'company' => 'required|string|max:200', 'vatNumber' => 'nullable|string|max:50']);
             DB::table('settings')->updateOrInsert(['id' => 1], ['rate' => $v['rate'], 'company' => $v['company'], 'vat_number' => $v['vatNumber'] ?? null, 'updated' => now()->toIso8601String()]);
+        }
+        if ($action === 'company_update') {
+            $this->access->admin($request);
+            $v = $request->validate(['id' => 'required|uuid|exists:companies,id', 'vatNumber' => 'nullable|string|max:50']);
+            DB::table('companies')->where('id', $v['id'])->update(['vat_number' => $v['vatNumber'] ?? null]);
         }
         if ($action === 'quote') return $this->quote($request);
         if ($action === 'quote_price') return $this->quotePrice($request);
@@ -195,6 +202,7 @@ class ErpController extends Controller
         $q = $request->validate([
             'quote.id' => 'sometimes|uuid', 'quote.revision' => 'sometimes|integer|min:1',
             'quote.agent' => 'required|uuid', 'quote.customer' => 'required|string|max:200',
+            'quote.companyId' => 'required|uuid|exists:companies,id',
             'quote.email' => 'nullable|email|max:254', 'quote.notes' => 'nullable|string|max:5000',
             'quote.rate' => 'required|numeric|gt:0|max:100', 'quote.lines' => 'required|array|min:1|max:200',
             'quote.lines.*.productId' => 'required|uuid|exists:products,id',
@@ -239,6 +247,7 @@ class ErpController extends Controller
             $pricingStatus = $unlocked ? 'Priced' : (($wasPriced && $anyUnpricedLine) ? 'Pending' : ($saved?->pricing_status ?? 'Pending'));
             $values = [
                 'customer' => $q['customer'], 'email' => $q['email'] ?? '', 'notes' => $q['notes'] ?? '',
+                'company_id' => $q['companyId'],
                 'lines' => json_encode($lines, JSON_THROW_ON_ERROR), 'total' => $total, 'updated' => now()->toIso8601String(),
                 'pricing_status' => $pricingStatus, 'price_unlocked_by_admin' => false,
             ];
@@ -345,7 +354,7 @@ class ErpController extends Controller
         ])->all();
         $id = (string) Str::uuid();
         DB::table('delivery_notes')->insert([
-            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent,
+            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
             'customer' => $quote->customer, 'address' => $v['address'] ?? '', 'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
             'notes' => $v['notes'] ?? '', 'status' => 'Draft',
             'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
@@ -373,7 +382,7 @@ class ErpController extends Controller
         $total = $subtotal + $vat;
         $id = (string) Str::uuid();
         DB::table('invoices')->insert([
-            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent,
+            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
             'customer' => $quote->customer, 'email' => $quote->email,
             'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
             'subtotal' => $subtotal, 'vat_baisa' => $vat, 'total' => $total,
