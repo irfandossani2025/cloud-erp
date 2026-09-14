@@ -117,6 +117,8 @@ export type Invoice = {
   status: string;
   notes: string;
   due_date: string | null;
+  paid_at: string | null;
+  marked_paid_by: string | null;
   created: string;
   updated: string;
 };

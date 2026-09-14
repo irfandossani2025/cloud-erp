@@ -20,6 +20,7 @@ class ErpController extends Controller
         $agentId = $request->user()->agent_id;
         $seesAllQuotes = $isAdmin || $role === 'pricing';
         $canSeeCost = $isAdmin || $role === 'pricing';
+        $seesAllInvoices = $isAdmin || $role === 'accounts';
 
         $agents = DB::table('agents')->orderBy('name');
         $quotes = DB::table('quotes')->orderByDesc('number');
@@ -32,10 +33,12 @@ class ErpController extends Controller
             $customers->where('agent', $agentId);
             $activities->where('agent', $agentId);
             $deliveryNotes->where('agent', $agentId);
-            $invoices->where('agent', $agentId);
         }
         if (!$seesAllQuotes) {
             $quotes->where('agent', $agentId);
+        }
+        if (!$seesAllInvoices) {
+            $invoices->where('agent', $agentId);
         }
 
         $settings = DB::table('settings')->where('id', 1)->first();
@@ -78,7 +81,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,mockup_approve',
+            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,mockup_approve',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -104,7 +107,7 @@ class ErpController extends Controller
                 'name' => 'required|string|max:200',
                 'email' => 'nullable|email|max:254|unique:users,email',
                 'password' => 'nullable|string|min:8|max:72',
-                'role' => 'nullable|in:pricing',
+                'role' => 'nullable|in:pricing,accounts',
             ]);
             abort_if(!empty($v['email']) && empty($v['password']), 422, 'Set a sign-in password for this agent.');
             abort_if(empty($v['email']) && !empty($v['password']), 422, 'Enter a sign-in email for this agent.');
@@ -150,10 +153,24 @@ class ErpController extends Controller
         }
         if ($action === 'invoice') return $this->invoice($request);
         if ($action === 'invoice_status') {
-            $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'status' => 'required|in:Draft,Sent,Paid,Cancelled']);
+            $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'status' => 'required|in:Draft,Sent,Cancelled']);
             $inv = DB::table('invoices')->where('id', $v['id'])->first();
             $this->access->agent($request, $inv->agent);
             DB::table('invoices')->where('id', $v['id'])->update(['status' => $v['status'], 'updated' => now()->toIso8601String()]);
+        }
+        if ($action === 'invoice_payment') {
+            $this->access->accounts($request);
+            $v = $request->validate([
+                'id' => 'required|uuid|exists:invoices,id',
+                'paid' => 'required|boolean',
+                'paidAt' => 'required_if:paid,true|nullable|date',
+            ]);
+            DB::table('invoices')->where('id', $v['id'])->update([
+                'status' => $v['paid'] ? 'Paid' : 'Sent',
+                'paid_at' => $v['paid'] ? $v['paidAt'] : null,
+                'marked_paid_by' => $v['paid'] ? $request->user()->agent_id : null,
+                'updated' => now()->toIso8601String(),
+            ]);
         }
         return response()->json(['ok' => true]);
     }

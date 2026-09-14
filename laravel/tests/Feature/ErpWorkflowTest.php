@@ -52,6 +52,17 @@ class ErpWorkflowTest extends TestCase
         ]);
     }
 
+    private function makeAccountsUser(): User
+    {
+        $agentId = (string) Str::uuid();
+        DB::table('agents')->insert(['id' => $agentId, 'name' => 'Accounts']);
+
+        return User::create([
+            'name' => 'Accounts', 'email' => 'accounts-'.$agentId.'@test.invalid',
+            'password' => 'password', 'is_admin' => false, 'agent_id' => $agentId, 'role' => 'accounts',
+        ]);
+    }
+
     private function makeAcceptedQuote(User $agent, string $agentId, string $productId, int $unitBaisa = 1000, int $quantity = 2): string
     {
         $id = $this->actingAs($agent)->postJson('/api/erp', [
@@ -481,8 +492,109 @@ class ErpWorkflowTest extends TestCase
             'invoice' => ['quoteId' => $quoteId],
         ])->json('id');
         $this->actingAs($agent)->postJson('/api/erp', [
-            'action' => 'invoice_status', 'id' => $invId, 'status' => 'Paid',
+            'action' => 'invoice_status', 'id' => $invId, 'status' => 'Sent',
         ])->assertOk();
-        $this->assertDatabaseHas('invoices', ['id' => $invId, 'status' => 'Paid']);
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'status' => 'Sent']);
+    }
+
+    public function test_an_agent_cannot_mark_their_own_invoice_as_paid_via_invoice_status(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice_status', 'id' => $invId, 'status' => 'Paid',
+        ])->assertStatus(422);
+    }
+
+    public function test_accounts_role_can_mark_an_invoice_as_paid_with_a_date(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+
+        $accountsUser = $this->makeAccountsUser();
+        $this->actingAs($accountsUser)->postJson('/api/erp', [
+            'action' => 'invoice_payment', 'id' => $invId, 'paid' => true, 'paidAt' => '2026-09-16',
+        ])->assertOk();
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invId, 'status' => 'Paid', 'paid_at' => '2026-09-16',
+            'marked_paid_by' => $accountsUser->agent_id,
+        ]);
+    }
+
+    public function test_a_regular_agent_cannot_mark_an_invoice_as_paid(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice_payment', 'id' => $invId, 'paid' => true, 'paidAt' => '2026-09-16',
+        ])->assertForbidden();
+    }
+
+    public function test_accounts_role_can_undo_a_recorded_payment(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->approveMockup($agent, $agentId, $productId, $quoteId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $accountsUser = $this->makeAccountsUser();
+        $this->actingAs($accountsUser)->postJson('/api/erp', [
+            'action' => 'invoice_payment', 'id' => $invId, 'paid' => true, 'paidAt' => '2026-09-16',
+        ])->assertOk();
+        $this->actingAs($accountsUser)->postJson('/api/erp', [
+            'action' => 'invoice_payment', 'id' => $invId, 'paid' => false,
+        ])->assertOk();
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'status' => 'Sent', 'paid_at' => null, 'marked_paid_by' => null]);
+    }
+
+    public function test_accounts_role_sees_invoices_from_every_agent(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB, $agentBId] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteA = $this->makeAcceptedQuote($agentA, $agentAId, $productId);
+        $this->approveMockup($agentA, $agentAId, $productId, $quoteA);
+        $this->actingAs($agentA)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteA]])->assertOk();
+        $this->actingAs($agentA)->postJson('/api/erp', ['action' => 'invoice', 'invoice' => ['quoteId' => $quoteA]])->assertOk();
+
+        $quoteB = $this->makeAcceptedQuote($agentB, $agentBId, $productId);
+        $this->approveMockup($agentB, $agentBId, $productId, $quoteB);
+        $this->actingAs($agentB)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteB]])->assertOk();
+        $this->actingAs($agentB)->postJson('/api/erp', ['action' => 'invoice', 'invoice' => ['quoteId' => $quoteB]])->assertOk();
+
+        $accountsView = $this->actingAs($this->makeAccountsUser())->getJson('/api/erp')->json();
+        $this->assertCount(2, $accountsView['invoices']);
+
+        $agentAView = $this->actingAs($agentA)->getJson('/api/erp')->json();
+        $this->assertCount(1, $agentAView['invoices']);
     }
 }

@@ -38,6 +38,8 @@ import {
   X,
   Unlock,
   DollarSign,
+  Wallet,
+  AlertTriangle,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -272,6 +274,8 @@ export default function Home() {
   const [mockupApproveDialog, setMockupApproveDialog] = useState(false);
   const [pricingQuote, setPricingQuote] = useState<Quote | null>(null),
     [pricingLines, setPricingLines] = useState<Record<string, number>>({});
+  const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null),
+    [paymentDate, setPaymentDate] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -478,6 +482,17 @@ export default function Home() {
   );
   const agentName = (id: string) =>
     data.agents.find((a) => a.id === id)?.name || "Unknown agent";
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const isOverdue = (i: Invoice) =>
+    i.status !== "Paid" &&
+    i.status !== "Cancelled" &&
+    !!i.due_date &&
+    i.due_date.slice(0, 10) < todayIso;
+  const pendingInvoices = data.invoices.filter(
+    (i) => i.status !== "Paid" && i.status !== "Cancelled",
+  );
+  const paidInvoices = data.invoices.filter((i) => i.status === "Paid");
+  const overdueInvoices = pendingInvoices.filter(isOverdue);
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -721,6 +736,31 @@ export default function Home() {
       toast.success("Quotation priced");
     });
   }
+  function openPayment(i: Invoice) {
+    setPaymentInvoice(i);
+    setPaymentDate(i.paid_at?.slice(0, 10) || todayIso);
+  }
+  async function submitPayment(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!paymentInvoice) return;
+    await perform("invoice-payment", async () => {
+      await api("invoice_payment", {
+        id: paymentInvoice.id,
+        paid: true,
+        paidAt: paymentDate,
+      });
+      await refresh();
+      setPaymentInvoice(null);
+      toast.success("Payment recorded");
+    });
+  }
+  async function undoPayment(i: Invoice) {
+    await perform("invoice-payment", async () => {
+      await api("invoice_payment", { id: i.id, paid: false });
+      await refresh();
+      toast.success("Payment undone");
+    });
+  }
   async function approveMockup(quoteId: string, generationId: string) {
     await perform("mockup-approve", async () => {
       await api("mockup_approve", { mockup: { quoteId, generationId } });
@@ -913,6 +953,15 @@ export default function Home() {
               Pricing
               {pricingQueue.length > 0 && (
                 <span className="unread-dot">{pricingQueue.length}</span>
+              )}
+            </TabsTrigger>
+          )}
+          {(data.isAdmin || data.userRole === "accounts") && (
+            <TabsTrigger value="accounts">
+              <Wallet />
+              Accounts
+              {overdueInvoices.length > 0 && (
+                <span className="unread-dot">{overdueInvoices.length}</span>
               )}
             </TabsTrigger>
           )}
@@ -2423,6 +2472,108 @@ export default function Home() {
             )}
           </section>
         </TabsContent>
+        <TabsContent value="accounts">
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span className="stat-label">Total invoices</span>
+              <strong className="stat-value">{data.invoices.length}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Pending</span>
+              <strong className="stat-value">{pendingInvoices.length}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Paid</span>
+              <strong className="stat-value">{paidInvoices.length}</strong>
+            </div>
+            <div className="stat-card stat-card-warn">
+              <span className="stat-label">Overdue</span>
+              <strong className="stat-value">{overdueInvoices.length}</strong>
+            </div>
+          </div>
+          <section className="panel">
+            <div className="section-head">
+              <h2>Invoices</h2>
+              <span className="badge">{data.invoices.length} total</span>
+            </div>
+            {data.invoices.length ? (
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Due date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.invoices.map((i) => (
+                    <TableRow key={i.id}>
+                      <TableCell data-label="Invoice" className="card-title">
+                        INV-{String(i.number).padStart(4, "0")}
+                      </TableCell>
+                      <TableCell data-label="Agent">
+                        {agentName(i.agent)}
+                      </TableCell>
+                      <TableCell data-label="Customer">
+                        {i.customer}
+                      </TableCell>
+                      <TableCell data-label="Total">
+                        OMR {money(i.total)}
+                      </TableCell>
+                      <TableCell data-label="Due date">
+                        {i.due_date ? (
+                          <span
+                            className={
+                              isOverdue(i) ? "overdue-date" : undefined
+                            }
+                          >
+                            {isOverdue(i) && <AlertTriangle size={14} />}{" "}
+                            {new Date(i.due_date).toLocaleDateString("en-OM")}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell data-label="Status">
+                        <span className="badge">
+                          {i.status === "Paid"
+                            ? `Paid ${i.paid_at ? new Date(i.paid_at).toLocaleDateString("en-OM") : ""}`
+                            : i.status}
+                        </span>
+                      </TableCell>
+                      <TableCell data-label="" className="card-actions">
+                        {i.status === "Paid" ? (
+                          <button
+                            className="secondary"
+                            onClick={() => void undoPayment(i)}
+                          >
+                            Undo
+                          </button>
+                        ) : (
+                          <button
+                            className="secondary"
+                            onClick={() => openPayment(i)}
+                          >
+                            <Wallet size={16} /> Mark as paid
+                          </button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Blank title="No invoices yet">
+                Invoices appear here once an agent creates one from an
+                accepted quotation.
+              </Blank>
+            )}
+          </section>
+        </TabsContent>
         <TabsContent value="studio">
           <div className="studio-layout">
             <form className="panel" onSubmit={generateMockup}>
@@ -2861,6 +3012,7 @@ export default function Home() {
                       <select name="role" className="choice">
                         <option value="">Sales agent</option>
                         <option value="pricing">Pricing</option>
+                        <option value="accounts">Accounts</option>
                       </select>
                     </Field>
                   </div>
@@ -3266,6 +3418,38 @@ export default function Home() {
                 </div>
                 <button className="primary" disabled={!!busy}>
                   <Check size={16} /> Submit pricing
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!paymentInvoice}
+        onOpenChange={(open) => !open && setPaymentInvoice(null)}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {paymentInvoice &&
+              `Record payment · INV-${String(paymentInvoice.number).padStart(4, "0")}`}
+          </DialogTitle>
+          <DialogDescription>
+            {paymentInvoice &&
+              `${paymentInvoice.customer} · OMR ${money(paymentInvoice.total)}`}
+          </DialogDescription>
+          {paymentInvoice && (
+            <form className="pricing-form" onSubmit={submitPayment}>
+              <Field label="Payment received on">
+                <input
+                  type="date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                />
+              </Field>
+              <div className="quote-bottom">
+                <button className="primary" disabled={!!busy}>
+                  <Check size={16} /> Confirm payment
                 </button>
               </div>
             </form>

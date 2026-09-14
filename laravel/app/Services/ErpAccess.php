@@ -22,4 +22,9 @@ class ErpAccess
     {
         abort_unless($request->user()->is_admin || $request->user()->role === 'pricing', 403, 'Pricing access is required.');
     }
+
+    public function accounts(Request $request): void
+    {
+        abort_unless($request->user()->is_admin || $request->user()->role === 'accounts', 403, 'Accounts access is required.');
+    }
 }

@@ -1152,7 +1152,43 @@ th {
 .pricing-form .field {
   margin: 0;
 }
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat-card-warn {
+  border-color: #f0c4c4;
+  background: #fdf4f4;
+}
+.stat-label {
+  font-size: 13px;
+  color: #637085;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 650;
+}
+.overdue-date {
+  color: #b42335;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 @media (max-width: 760px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .messages-layout {
     grid-template-columns: 1fr;
   }
