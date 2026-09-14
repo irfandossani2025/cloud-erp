@@ -30,7 +30,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Circle,
-  ImagePlus,
   MessageCircle,
   Paperclip,
   SendHorizontal,
@@ -40,6 +39,8 @@ import {
   DollarSign,
   Wallet,
   AlertTriangle,
+  Flag,
+  BarChart3,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -271,11 +272,13 @@ export default function Home() {
       null,
     ),
     [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
-  const [mockupApproveDialog, setMockupApproveDialog] = useState(false);
   const [pricingQuote, setPricingQuote] = useState<Quote | null>(null),
     [pricingLines, setPricingLines] = useState<Record<string, number>>({});
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null),
     [paymentDate, setPaymentDate] = useState("");
+  const [outcomeQuote, setOutcomeQuote] = useState<Quote | null>(null),
+    [outcomeChoice, setOutcomeChoice] = useState(""),
+    [outcomeReason, setOutcomeReason] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -471,8 +474,6 @@ export default function Home() {
     data.deliveryNotes.some((n) => n.quote_id === quoteId);
   const hasInvoice = (quoteId: string) =>
     data.invoices.some((i) => i.quote_id === quoteId);
-  const mockupsForQuote = (q: Quote) =>
-    mockups.filter((m) => q.lines.some((l) => l.productId === m.productId));
   const totalUnread = conversations.reduce((n, c) => n + c.unreadCount, 0);
   const activeConversationSummary = conversations.find(
     (c) => c.id === activeConversation,
@@ -493,6 +494,28 @@ export default function Home() {
   );
   const paidInvoices = data.invoices.filter((i) => i.status === "Paid");
   const overdueInvoices = pendingInvoices.filter(isOverdue);
+  const wonQuotes = data.quotes.filter((q) => q.outcome === "Won");
+  const lostQuotes = data.quotes.filter((q) => q.outcome === "Lost");
+  const onHoldQuotes = data.quotes.filter((q) => q.outcome === "OnHold");
+  const openQuotes = data.quotes.filter((q) => !q.outcome);
+  const reasonCounts = (quotes: Quote[]) => {
+    const counts: Record<string, number> = {};
+    quotes.forEach((q) => {
+      const reason = q.outcome_reason || "No reason given";
+      counts[reason] = (counts[reason] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  };
+  const agentBreakdown = data.agents.map((a) => {
+    const qs = data.quotes.filter((q) => q.agent === a.id);
+    return {
+      agent: a,
+      total: qs.length,
+      won: qs.filter((q) => q.outcome === "Won").length,
+      lost: qs.filter((q) => q.outcome === "Lost").length,
+      onHold: qs.filter((q) => q.outcome === "OnHold").length,
+    };
+  });
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -761,13 +784,24 @@ export default function Home() {
       toast.success("Payment undone");
     });
   }
-  async function approveMockup(quoteId: string, generationId: string) {
-    await perform("mockup-approve", async () => {
-      await api("mockup_approve", { mockup: { quoteId, generationId } });
+  function openOutcome(q: Quote) {
+    setOutcomeQuote(q);
+    setOutcomeChoice(q.outcome || "");
+    setOutcomeReason(q.outcome_reason || "");
+  }
+  async function submitOutcome(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!outcomeQuote) return;
+    await perform("quote-outcome", async () => {
+      await api("quote_outcome", {
+        id: outcomeQuote.id,
+        outcome: outcomeChoice || null,
+        reason: outcomeReason || undefined,
+      });
       const d = await refresh();
-      setView(d.quotes.find((q) => q.id === quoteId) || null);
-      setMockupApproveDialog(false);
-      toast.success("Mockup approved");
+      setView((v) => (v ? d.quotes.find((q) => q.id === v.id) || v : v));
+      setOutcomeQuote(null);
+      toast.success("Outcome updated");
     });
   }
   async function startConversation() {
@@ -946,6 +980,10 @@ export default function Home() {
           <TabsTrigger value="documents">
             <Receipt />
             Documents
+          </TabsTrigger>
+          <TabsTrigger value="reports">
+            <BarChart3 />
+            Reports
           </TabsTrigger>
           {(data.isAdmin || data.userRole === "pricing") && (
             <TabsTrigger value="pricing">
@@ -1437,37 +1475,31 @@ export default function Home() {
                         : "Unlock pricing"}
                     </button>
                   )}
-                  {view.status === "Accepted" &&
-                    view.mockup_status !== "Approved" && (
-                      <button
-                        className="secondary"
-                        disabled={!!busy}
-                        onClick={() => setMockupApproveDialog(true)}
-                      >
-                        <ImagePlus size={16} /> Approve mockup
-                      </button>
-                    )}
-                  {view.status === "Accepted" &&
-                    view.mockup_status === "Approved" && (
-                      <button
-                        className="secondary"
-                        disabled={!!busy}
-                        onClick={() => void createDeliveryNote(view.id)}
-                      >
-                        <Truck size={16} /> Delivery note
-                      </button>
-                    )}
-                  {view.status === "Accepted" &&
-                    view.mockup_status === "Approved" &&
-                    hasDeliveryNote(view.id) && (
-                      <button
-                        className="secondary"
-                        disabled={!!busy}
-                        onClick={() => void createInvoice(view.id)}
-                      >
-                        <Receipt size={16} /> Invoice
-                      </button>
-                    )}
+                  {view.status === "Accepted" && !hasDeliveryNote(view.id) && (
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      onClick={() => void createDeliveryNote(view.id)}
+                    >
+                      <Truck size={16} /> Delivery note
+                    </button>
+                  )}
+                  {view.status === "Accepted" && hasDeliveryNote(view.id) && (
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      onClick={() => void createInvoice(view.id)}
+                    >
+                      <Receipt size={16} /> Invoice
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    disabled={!!busy}
+                    onClick={() => openOutcome(view)}
+                  >
+                    <Flag size={16} /> Set outcome
+                  </button>
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
@@ -1489,22 +1521,26 @@ export default function Home() {
                     ? "Priced"
                     : "Awaiting pricing"}
                 </span>
+                <span
+                  className={
+                    "badge" +
+                    (view.outcome === "Won"
+                      ? " badge-won"
+                      : view.outcome === "Lost"
+                        ? " badge-lost"
+                        : view.outcome === "OnHold"
+                          ? " badge-onhold"
+                          : "")
+                  }
+                >
+                  {view.outcome === "OnHold"
+                    ? "On hold"
+                    : view.outcome || "Open"}
+                  {view.outcome_reason ? " · " + view.outcome_reason : ""}
+                </span>
               </div>
               {view.status === "Accepted" && (
                 <div className="pipeline no-print">
-                  <span
-                    className={
-                      "pipeline-step" +
-                      (view.mockup_status === "Approved" ? " done" : "")
-                    }
-                  >
-                    {view.mockup_status === "Approved" ? (
-                      <CheckCircle2 size={14} />
-                    ) : (
-                      <Circle size={14} />
-                    )}
-                    Mockup approved
-                  </span>
                   <span
                     className={
                       "pipeline-step" +
@@ -1657,6 +1693,22 @@ export default function Home() {
                             {q.pricing_status !== "Priced" && (
                               <span className="badge pending">
                                 Awaiting pricing
+                              </span>
+                            )}
+                            {q.outcome && (
+                              <span
+                                className={
+                                  "badge" +
+                                  (q.outcome === "Won"
+                                    ? " badge-won"
+                                    : q.outcome === "Lost"
+                                      ? " badge-lost"
+                                      : " badge-onhold")
+                                }
+                              >
+                                {q.outcome === "OnHold"
+                                  ? "On hold"
+                                  : q.outcome}
                               </span>
                             )}
                           </TableCell>
@@ -2414,6 +2466,119 @@ export default function Home() {
                   one.
                 </Blank>
               )}
+            </section>
+          )}
+        </TabsContent>
+        <TabsContent value="reports">
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span className="stat-label">Prepared</span>
+              <strong className="stat-value">{data.quotes.length}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Open</span>
+              <strong className="stat-value">{openQuotes.length}</strong>
+            </div>
+            <div className="stat-card stat-card-won">
+              <span className="stat-label">Won</span>
+              <strong className="stat-value">{wonQuotes.length}</strong>
+            </div>
+            <div className="stat-card stat-card-warn">
+              <span className="stat-label">Lost</span>
+              <strong className="stat-value">{lostQuotes.length}</strong>
+            </div>
+            <div className="stat-card stat-card-hold">
+              <span className="stat-label">On hold</span>
+              <strong className="stat-value">{onHoldQuotes.length}</strong>
+            </div>
+          </div>
+          <div className="settings-grid">
+            <section className="panel">
+              <div className="section-head">
+                <h2>Reasons for loss</h2>
+                <span className="badge">{lostQuotes.length} lost</span>
+              </div>
+              {lostQuotes.length ? (
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reasonCounts(lostQuotes).map(([reason, count]) => (
+                      <TableRow key={reason}>
+                        <TableCell data-label="Reason">{reason}</TableCell>
+                        <TableCell data-label="Count">{count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Blank title="No lost quotations">
+                  Quotations marked Lost will show their reasons here.
+                </Blank>
+              )}
+            </section>
+            <section className="panel">
+              <div className="section-head">
+                <h2>Reasons on hold</h2>
+                <span className="badge">{onHoldQuotes.length} on hold</span>
+              </div>
+              {onHoldQuotes.length ? (
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reasonCounts(onHoldQuotes).map(([reason, count]) => (
+                      <TableRow key={reason}>
+                        <TableCell data-label="Reason">{reason}</TableCell>
+                        <TableCell data-label="Count">{count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Blank title="Nothing on hold">
+                  Quotations marked On hold will show their reasons here.
+                </Blank>
+              )}
+            </section>
+          </div>
+          {data.isAdmin && (
+            <section className="panel">
+              <div className="section-head">
+                <h2>By sales agent</h2>
+              </div>
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Prepared</TableHead>
+                    <TableHead>Won</TableHead>
+                    <TableHead>Lost</TableHead>
+                    <TableHead>On hold</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {agentBreakdown.map((row) => (
+                    <TableRow key={row.agent.id}>
+                      <TableCell data-label="Agent" className="card-title">
+                        {row.agent.name}
+                      </TableCell>
+                      <TableCell data-label="Prepared">{row.total}</TableCell>
+                      <TableCell data-label="Won">{row.won}</TableCell>
+                      <TableCell data-label="Lost">{row.lost}</TableCell>
+                      <TableCell data-label="On hold">{row.onHold}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </section>
           )}
         </TabsContent>
@@ -3249,59 +3414,6 @@ export default function Home() {
         </DialogContent>
       </Dialog>
       <Dialog
-        open={mockupApproveDialog}
-        onOpenChange={setMockupApproveDialog}
-      >
-        <DialogContent>
-          <DialogTitle>Approve a mockup</DialogTitle>
-          <DialogDescription>
-            Pick the mockup the customer signed off on. This unlocks the
-            delivery note and invoice for this quotation.
-          </DialogDescription>
-          {view && mockupsForQuote(view).length ? (
-            <div className="mockup-grid">
-              {mockupsForQuote(view).map((m) => (
-                <article key={m.id}>
-                  <img
-                    src={"/api/assets?path=" + encodeURIComponent(m.path)}
-                    alt={"Branded mockup of " + m.productName}
-                  />
-                  <div className="section-head">
-                    <strong>{m.productName}</strong>
-                    <button
-                      className="primary"
-                      disabled={!!busy}
-                      onClick={() => void approveMockup(view.id, m.id)}
-                    >
-                      <Check size={16} /> Use this
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>No mockups yet for these products</EmptyTitle>
-                <EmptyDescription>
-                  Generate one in Mockup studio, then come back here to
-                  approve it.
-                </EmptyDescription>
-              </EmptyHeader>
-              <button
-                className="secondary"
-                onClick={() => {
-                  setMockupApproveDialog(false);
-                  setTab("studio");
-                }}
-              >
-                <Sparkles size={16} /> Open Mockup studio
-              </button>
-            </Empty>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog
         open={composeDialog}
         onOpenChange={(open) => {
           setComposeDialog(open);
@@ -3450,6 +3562,59 @@ export default function Home() {
               <div className="quote-bottom">
                 <button className="primary" disabled={!!busy}>
                   <Check size={16} /> Confirm payment
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!outcomeQuote}
+        onOpenChange={(open) => !open && setOutcomeQuote(null)}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {outcomeQuote &&
+              `Set outcome · Q-${String(outcomeQuote.number).padStart(4, "0")}`}
+          </DialogTitle>
+          <DialogDescription>
+            {outcomeQuote && outcomeQuote.customer}
+          </DialogDescription>
+          {outcomeQuote && (
+            <form className="pricing-form" onSubmit={submitOutcome}>
+              <Field label="Outcome">
+                <Choice
+                  value={outcomeChoice || "Open"}
+                  onChange={(v) => setOutcomeChoice(v === "Open" ? "" : v)}
+                  placeholder="Outcome"
+                  items={[
+                    { id: "Open", name: "Open / in progress" },
+                    { id: "Won", name: "Won" },
+                    { id: "Lost", name: "Lost" },
+                    { id: "OnHold", name: "On hold" },
+                  ]}
+                />
+              </Field>
+              {(outcomeChoice === "Lost" || outcomeChoice === "OnHold") && (
+                <Field
+                  label={
+                    outcomeChoice === "Lost"
+                      ? "Reason for losing this quotation"
+                      : "Reason it's on hold"
+                  }
+                >
+                  <textarea
+                    rows={3}
+                    maxLength={1000}
+                    required
+                    value={outcomeReason}
+                    onChange={(e) => setOutcomeReason(e.target.value)}
+                  />
+                </Field>
+              )}
+              <div className="quote-bottom">
+                <button className="primary" disabled={!!busy}>
+                  <Check size={16} /> Save outcome
                 </button>
               </div>
             </form>

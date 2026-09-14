@@ -1171,6 +1171,26 @@ th {
   border-color: #f0c4c4;
   background: #fdf4f4;
 }
+.stat-card-won {
+  border-color: #bfe3c8;
+  background: #f1faf3;
+}
+.stat-card-hold {
+  border-color: #f0dfad;
+  background: #fdf8ea;
+}
+.badge-won {
+  background: #e3f6e8;
+  color: #1c6b34;
+}
+.badge-lost {
+  background: #fdeaec;
+  color: #a32d3e;
+}
+.badge-onhold {
+  background: #fff4d9;
+  color: #815b10;
+}
 .stat-label {
   font-size: 13px;
   color: #637085;

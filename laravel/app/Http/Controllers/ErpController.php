@@ -81,7 +81,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,mockup_approve',
+            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -141,7 +141,22 @@ class ErpController extends Controller
             $changed = DB::table('quotes')->where('id', $v['id'])->where('revision', $v['revision'])->update(['status' => $v['status'], 'revision' => DB::raw('revision + 1'), 'updated' => now()->toIso8601String()]);
             abort_unless($changed, 409, 'Quotation changed. Refresh and try again.');
         }
-        if ($action === 'mockup_approve') return $this->mockupApprove($request);
+        if ($action === 'quote_outcome') {
+            $v = $request->validate([
+                'id' => 'required|uuid|exists:quotes,id',
+                'outcome' => 'nullable|in:Won,Lost,OnHold',
+                'reason' => 'required_if:outcome,Lost,OnHold|nullable|string|max:1000',
+            ]);
+            $q = DB::table('quotes')->where('id', $v['id'])->first();
+            $this->access->agent($request, $q->agent);
+            $outcome = $v['outcome'] ?? null;
+            DB::table('quotes')->where('id', $v['id'])->update([
+                'outcome' => $outcome,
+                'outcome_reason' => in_array($outcome, ['Lost', 'OnHold'], true) ? $v['reason'] : null,
+                'outcome_at' => $outcome ? now()->toIso8601String() : null,
+                'updated' => now()->toIso8601String(),
+            ]);
+        }
         if ($action === 'customer') return $this->customer($request);
         if ($action === 'customer_activity') return $this->customerActivity($request);
         if ($action === 'delivery_note') return $this->deliveryNote($request);
@@ -315,26 +330,6 @@ class ErpController extends Controller
         return response()->json(['id' => $id]);
     }
 
-    private function mockupApprove(Request $request)
-    {
-        $v = $request->validate([
-            'mockup.quoteId' => 'required|uuid|exists:quotes,id',
-            'mockup.generationId' => 'required|uuid|exists:generations,id',
-        ])['mockup'];
-        $quote = DB::table('quotes')->where('id', $v['quoteId'])->first();
-        $this->access->agent($request, $quote->agent);
-        abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can have its mockup approved.');
-        $generation = DB::table('generations')->where('id', $v['generationId'])->where('kind', 'mockup')->first();
-        abort_unless($generation, 404, 'Mockup not found.');
-        abort_unless($generation->agent === $quote->agent, 403, 'That mockup belongs to a different agent.');
-        DB::table('generations')->where('id', $generation->id)->update(['quote_id' => $quote->id]);
-        DB::table('quotes')->where('id', $quote->id)->update([
-            'mockup_status' => 'Approved', 'mockup_generation_id' => $generation->id,
-            'mockup_approved_at' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
-        ]);
-        return response()->json(['ok' => true]);
-    }
-
     private function deliveryNote(Request $request)
     {
         $v = $request->validate([
@@ -345,7 +340,6 @@ class ErpController extends Controller
         $quote = DB::table('quotes')->where('id', $v['quoteId'])->first();
         $this->access->agent($request, $quote->agent);
         abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can have a delivery note.');
-        abort_unless($quote->mockup_status === 'Approved', 422, 'Approve a mockup before creating a delivery note.');
         $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
             'productId' => $l['productId'], 'name' => $l['name'], 'sku' => $l['sku'], 'quantity' => $l['quantity'],
         ])->all();

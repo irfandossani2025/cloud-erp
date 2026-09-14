@@ -46,6 +46,9 @@ export type Quote = {
   priced_by: string | null;
   priced_at: string | null;
   price_unlocked_by_admin: boolean;
+  outcome: string | null;
+  outcome_reason: string | null;
+  outcome_at: string | null;
 };
 export const CRM_STAGES = [
   "New Lead",
