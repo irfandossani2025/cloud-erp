@@ -192,6 +192,17 @@ class ErpController extends Controller
             $dn = DB::table('delivery_notes')->where('id', $v['id'])->first();
             $this->access->agent($request, $dn->agent);
             DB::table('delivery_notes')->where('id', $v['id'])->update(['status' => $v['status'], 'updated' => now()->toIso8601String()]);
+            $invoiceId = null;
+            if ($v['status'] === 'Delivered') {
+                $existing = DB::table('invoices')->where('quote_id', $dn->quote_id)->first();
+                if ($existing) {
+                    $invoiceId = $existing->id;
+                } else {
+                    $quote = DB::table('quotes')->where('id', $dn->quote_id)->first();
+                    $invoiceId = $this->generateInvoice($quote);
+                }
+            }
+            return response()->json(['ok' => true, 'invoiceId' => $invoiceId]);
         }
         if ($action === 'invoice') return $this->invoice($request);
         if ($action === 'invoice_status') {
@@ -393,6 +404,13 @@ class ErpController extends Controller
         $this->access->agent($request, $quote->agent);
         abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can be invoiced.');
         abort_unless(DB::table('delivery_notes')->where('quote_id', $quote->id)->exists(), 422, 'Create a delivery note before invoicing.');
+        abort_if(DB::table('invoices')->where('quote_id', $quote->id)->exists(), 422, 'This quotation has already been invoiced.');
+        $id = $this->generateInvoice($quote, $v['dueDate'] ?? null, $v['notes'] ?? '');
+        return response()->json(['id' => $id]);
+    }
+
+    private function generateInvoice(object $quote, ?string $dueDate = null, string $notes = ''): string
+    {
         $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
             'productId' => $l['productId'], 'name' => $l['name'], 'sku' => $l['sku'],
             'quantity' => $l['quantity'], 'unitBaisa' => $l['unitBaisa'],
@@ -406,9 +424,9 @@ class ErpController extends Controller
             'customer' => $quote->customer, 'email' => $quote->email,
             'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
             'subtotal' => $subtotal, 'vat_baisa' => $vat, 'total' => $total,
-            'status' => 'Draft', 'notes' => $v['notes'] ?? '', 'due_date' => $v['dueDate'] ?? null,
+            'status' => 'Draft', 'notes' => $notes, 'due_date' => $dueDate,
             'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
         ]);
-        return response()->json(['id' => $id]);
+        return $id;
     }
 }

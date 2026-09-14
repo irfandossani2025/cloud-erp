@@ -422,6 +422,64 @@ class ErpWorkflowTest extends TestCase
         $this->assertDatabaseHas('invoices', ['id' => $invId, 'subtotal' => 2000, 'vat_baisa' => 100, 'total' => 2100]);
     }
 
+    public function test_marking_a_delivery_note_delivered_automatically_creates_an_invoice_with_vat(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId, unitBaisa: 1000, quantity: 2);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->assertDatabaseMissing('invoices', ['quote_id' => $quoteId]);
+
+        $response = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_status', 'id' => $dnId, 'status' => 'Delivered',
+        ])->assertOk();
+        $invoiceId = $response->json('invoiceId');
+        $this->assertNotNull($invoiceId);
+        // total = 2000 baisa, 5% VAT = 100 baisa, total = 2100 baisa
+        $this->assertDatabaseHas('invoices', ['id' => $invoiceId, 'quote_id' => $quoteId, 'subtotal' => 2000, 'vat_baisa' => 100, 'total' => 2100]);
+    }
+
+    public function test_toggling_delivery_status_does_not_create_a_duplicate_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_status', 'id' => $dnId, 'status' => 'Delivered',
+        ])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_status', 'id' => $dnId, 'status' => 'Draft',
+        ])->assertOk();
+        $response = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_status', 'id' => $dnId, 'status' => 'Delivered',
+        ])->assertOk();
+        $this->assertNotNull($response->json('invoiceId'));
+        $this->assertDatabaseCount('invoices', 1);
+    }
+
+    public function test_a_quote_cannot_be_invoiced_twice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->assertStatus(422);
+    }
+
     public function test_agent_cannot_invoice_another_agents_quote(): void
     {
         [$agentA, $agentAId] = $this->makeAgent('Agent A');

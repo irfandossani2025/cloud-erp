@@ -191,6 +191,7 @@ async function api(action: string, payload: object = {}) {
   const data = (await r.json()) as {
     id: string;
     count: number;
+    invoiceId?: string | null;
     error?: string;
   };
   if (!r.ok) throw new Error(data.error || "Request failed");
@@ -2376,11 +2377,27 @@ export default function Home() {
                     value={viewDeliveryNote.status}
                     onChange={(status) =>
                       void perform("dn-status", async () => {
-                        await api("delivery_note_status", {
+                        const r = await api("delivery_note_status", {
                           id: viewDeliveryNote.id,
                           status,
                         });
                         const d = await refresh();
+                        if (status === "Delivered" && r.invoiceId) {
+                          const inv = d.invoices.find(
+                            (i) => i.id === r.invoiceId,
+                          );
+                          if (inv) {
+                            setViewInvoice(inv);
+                            setDocTab("invoice");
+                            setViewDeliveryNote(null);
+                            toast.success(
+                              "Delivered — invoice INV-" +
+                                String(inv.number).padStart(4, "0") +
+                                " created",
+                            );
+                            return;
+                          }
+                        }
                         setViewDeliveryNote(
                           d.deliveryNotes.find(
                             (n) => n.id === viewDeliveryNote.id,
