@@ -41,15 +41,30 @@ class ErpWorkflowTest extends TestCase
         return $id;
     }
 
+    private function makePricingUser(): User
+    {
+        $agentId = (string) Str::uuid();
+        DB::table('agents')->insert(['id' => $agentId, 'name' => 'Pricing']);
+
+        return User::create([
+            'name' => 'Pricing', 'email' => 'pricing-'.$agentId.'@test.invalid',
+            'password' => 'password', 'is_admin' => false, 'agent_id' => $agentId, 'role' => 'pricing',
+        ]);
+    }
+
     private function makeAcceptedQuote(User $agent, string $agentId, string $productId, int $unitBaisa = 1000, int $quantity = 2): string
     {
         $id = $this->actingAs($agent)->postJson('/api/erp', [
             'action' => 'quote',
             'quote' => [
                 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
-                'lines' => [['productId' => $productId, 'quantity' => $quantity, 'unitBaisa' => $unitBaisa]],
+                'lines' => [['productId' => $productId, 'quantity' => $quantity]],
             ],
         ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $id, 'lines' => [['productId' => $productId, 'unitBaisa' => $unitBaisa]]],
+        ])->assertOk();
         DB::table('quotes')->where('id', $id)->update(['status' => 'Accepted']);
 
         return $id;
@@ -66,7 +81,7 @@ class ErpWorkflowTest extends TestCase
         $this->actingAs($admin)->get('/')->assertOk();
     }
 
-    public function test_agent_can_save_and_read_back_a_quote_total(): void
+    public function test_agent_cannot_set_a_price_and_the_quote_starts_pending_pricing(): void
     {
         [$agent, $agentId] = $this->makeAgent('Agent One');
         $productId = $this->makeProduct();
@@ -79,7 +94,101 @@ class ErpWorkflowTest extends TestCase
                 'lines' => [['productId' => $productId, 'quantity' => 2, 'unitBaisa' => 1000]],
             ],
         ])->assertOk();
-        $this->assertDatabaseHas('quotes', ['id' => $response->json('id'), 'total' => 2000]);
+        $this->assertDatabaseHas('quotes', ['id' => $response->json('id'), 'total' => 0, 'pricing_status' => 'Pending']);
+    }
+
+    public function test_pricing_role_can_price_a_quote(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 2]]],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productId, 'unitBaisa' => 1500]]],
+        ])->assertOk();
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 3000, 'pricing_status' => 'Priced']);
+    }
+
+    public function test_a_regular_agent_cannot_price_a_quote(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        [$agentB] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+        ])->json('id');
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productId, 'unitBaisa' => 500]]],
+        ])->assertForbidden();
+    }
+
+    public function test_a_quote_cannot_be_accepted_before_it_is_priced(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'status', 'id' => $quoteId, 'revision' => 1, 'status' => 'Accepted',
+        ])->assertStatus(422);
+    }
+
+    public function test_agent_price_edits_are_ignored_until_admin_unlocks_them(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1]]],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productId, 'unitBaisa' => 1000]]],
+        ])->assertOk();
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
+        ])->assertOk();
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 1000]);
+
+        $this->actingAs($admin)->postJson('/api/erp', ['action' => 'quote_unlock_price', 'id' => $quoteId])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['id' => $quoteId, 'revision' => 3, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 9999]]],
+        ])->assertOk();
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 9999, 'pricing_status' => 'Priced']);
+    }
+
+    public function test_adding_a_new_line_to_a_priced_quote_requires_repricing(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productA = $this->makeProduct();
+        $productB = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => ['agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1, 'lines' => [['productId' => $productA, 'quantity' => 1]]],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productA, 'unitBaisa' => 1000]]],
+        ])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [['productId' => $productA, 'quantity' => 1], ['productId' => $productB, 'quantity' => 1]],
+            ],
+        ])->assertOk();
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'pricing_status' => 'Pending']);
     }
 
     public function test_agent_cannot_create_a_quote_for_another_agent(): void

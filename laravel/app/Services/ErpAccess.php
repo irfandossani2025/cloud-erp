@@ -17,4 +17,9 @@ class ErpAccess
     {
         abort_unless($request->user()->is_admin, 403, 'Administrator access is required.');
     }
+
+    public function pricing(Request $request): void
+    {
+        abort_unless($request->user()->is_admin || $request->user()->role === 'pricing', 403, 'Pricing access is required.');
+    }
 }

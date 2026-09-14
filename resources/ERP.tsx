@@ -36,6 +36,8 @@ import {
   SendHorizontal,
   File as FileIcon,
   X,
+  Unlock,
+  DollarSign,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -100,6 +102,7 @@ type State = {
   supplierConfigured: boolean;
   aiConfigured: boolean;
   isAdmin: boolean;
+  userRole: string | null;
   userName: string;
   userAgentId: string;
 };
@@ -112,6 +115,8 @@ type Draft = {
   notes: string;
   rate: number;
   lines: Line[];
+  pricingStatus: string;
+  priceUnlocked: boolean;
 };
 type Mockup = {
   id: string;
@@ -158,6 +163,7 @@ const initial: State = {
   supplierConfigured: false,
   aiConfigured: false,
   isAdmin: false,
+  userRole: null,
   userName: "",
   userAgentId: "",
 };
@@ -264,6 +270,8 @@ export default function Home() {
     ),
     [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [mockupApproveDialog, setMockupApproveDialog] = useState(false);
+  const [pricingQuote, setPricingQuote] = useState<Quote | null>(null),
+    [pricingLines, setPricingLines] = useState<Record<string, number>>({});
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -465,6 +473,11 @@ export default function Home() {
   const activeConversationSummary = conversations.find(
     (c) => c.id === activeConversation,
   );
+  const pricingQueue = data.quotes.filter(
+    (q) => q.status === "Draft" && q.pricing_status === "Pending",
+  );
+  const agentName = (id: string) =>
+    data.agents.find((a) => a.id === id)?.name || "Unknown agent";
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -478,6 +491,8 @@ export default function Home() {
       notes: "",
       rate: data.settings.rate,
       lines: [],
+      pricingStatus: "Pending",
+      priceUnlocked: false,
     });
     setView(null);
     setAiResult(null);
@@ -682,6 +697,30 @@ export default function Home() {
       toast.success("Activity logged");
     });
   }
+  function openPricing(q: Quote) {
+    setPricingQuote(q);
+    setPricingLines(
+      Object.fromEntries(q.lines.map((l) => [l.productId, l.unitBaisa])),
+    );
+  }
+  async function submitPricing(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!pricingQuote) return;
+    await perform("quote-price", async () => {
+      await api("quote_price", {
+        quote: {
+          id: pricingQuote.id,
+          lines: pricingQuote.lines.map((l) => ({
+            productId: l.productId,
+            unitBaisa: pricingLines[l.productId] ?? 0,
+          })),
+        },
+      });
+      await refresh();
+      setPricingQuote(null);
+      toast.success("Quotation priced");
+    });
+  }
   async function approveMockup(quoteId: string, generationId: string) {
     await perform("mockup-approve", async () => {
       await api("mockup_approve", { mockup: { quoteId, generationId } });
@@ -868,6 +907,15 @@ export default function Home() {
             <Receipt />
             Documents
           </TabsTrigger>
+          {(data.isAdmin || data.userRole === "pricing") && (
+            <TabsTrigger value="pricing">
+              <DollarSign />
+              Pricing
+              {pricingQueue.length > 0 && (
+                <span className="unread-dot">{pricingQueue.length}</span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="studio">
             <Sparkles />
             Mockup studio
@@ -1001,26 +1049,43 @@ export default function Home() {
                                   }
                                 />
                               </Field>
-                              <Field label="Unit selling price · OMR">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="1000000"
-                                  step="0.001"
-                                  value={l.unitBaisa / 1000}
-                                  onChange={(e) =>
-                                    updateLine(i, {
-                                      unitBaisa: Math.round(
-                                        Number(e.target.value) * 1000,
-                                      ),
-                                    })
-                                  }
-                                />
-                              </Field>
+                              {draft.priceUnlocked ? (
+                                <Field label="Unit selling price · OMR">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="1000000"
+                                    step="0.001"
+                                    value={l.unitBaisa / 1000}
+                                    onChange={(e) =>
+                                      updateLine(i, {
+                                        unitBaisa: Math.round(
+                                          Number(e.target.value) * 1000,
+                                        ),
+                                      })
+                                    }
+                                  />
+                                </Field>
+                              ) : draft.pricingStatus === "Priced" ? (
+                                <Field label="Unit selling price · OMR">
+                                  <p className="locked-price">
+                                    {money(l.unitBaisa)}
+                                  </p>
+                                </Field>
+                              ) : (
+                                <Field label="Unit selling price · OMR">
+                                  <p className="locked-price">
+                                    Awaiting pricing
+                                  </p>
+                                </Field>
+                              )}
                               <div className="line-total">
                                 <small>Line total · OMR</small>
                                 <strong>
-                                  {money(l.quantity * l.unitBaisa)}
+                                  {draft.pricingStatus === "Pending" &&
+                                  !draft.priceUnlocked
+                                    ? "—"
+                                    : money(l.quantity * l.unitBaisa)}
                                 </strong>
                               </div>
                             </div>
@@ -1034,12 +1099,14 @@ export default function Home() {
                                 maxLength={1000}
                               />
                             </Field>
-                            {l.unitBaisa === 0 && (
-                              <p className="warning">
-                                Selling price is zero. Enter the price before
-                                sending to the customer.
-                              </p>
-                            )}
+                            {l.unitBaisa === 0 &&
+                              draft.pricingStatus === "Priced" &&
+                              draft.priceUnlocked && (
+                                <p className="warning">
+                                  Selling price is zero. Enter the price
+                                  before sending to the customer.
+                                </p>
+                              )}
                             {p && l.quantity > p.warehouse_stock && (
                               <p className="warning">
                                 {l.quantity - p.warehouse_stock} units exceed
@@ -1065,10 +1132,17 @@ export default function Home() {
                   <div className="quote-bottom">
                     <div>
                       <small>Subtotal · OMR</small>
-                      <strong>{money(total)}</strong>
+                      <strong>
+                        {draft.pricingStatus === "Pending" &&
+                        !draft.priceUnlocked
+                          ? "Awaiting pricing"
+                          : money(total)}
+                      </strong>
                       <small>
-                        No tax, delivery or printing charges added
-                        automatically.
+                        {draft.pricingStatus === "Pending" &&
+                        !draft.priceUnlocked
+                          ? "Save this draft and the Pricing team will send back prices."
+                          : "No tax, delivery or printing charges added automatically."}
                       </small>
                     </div>
                     <button
@@ -1263,6 +1337,8 @@ export default function Home() {
                           notes: view.notes,
                           rate: view.rate,
                           lines: view.lines,
+                          pricingStatus: view.pricing_status,
+                          priceUnlocked: view.price_unlocked_by_admin,
                         });
                         setView(null);
                       }}
@@ -1284,11 +1360,34 @@ export default function Home() {
                       })
                     }
                     placeholder="Quotation status"
-                    items={["Draft", "Reviewed", "Accepted", "Declined"].map(
-                      (s) => ({ id: s, name: s }),
-                    )}
+                    items={["Draft", "Reviewed", "Accepted", "Declined"]
+                      .filter(
+                        (s) =>
+                          view.pricing_status === "Priced" ||
+                          !["Reviewed", "Accepted"].includes(s),
+                      )
+                      .map((s) => ({ id: s, name: s }))}
                     disabled={!!busy}
                   />
+                  {data.isAdmin && view.pricing_status === "Priced" && (
+                    <button
+                      className="secondary"
+                      disabled={!!busy || view.price_unlocked_by_admin}
+                      onClick={() =>
+                        void perform("unlock-price", async () => {
+                          await api("quote_unlock_price", { id: view.id });
+                          const d = await refresh();
+                          setView(d.quotes.find((q) => q.id === view.id) || null);
+                          toast.success("Pricing unlocked for this agent");
+                        })
+                      }
+                    >
+                      <Unlock size={16} />
+                      {view.price_unlocked_by_admin
+                        ? "Pricing unlocked"
+                        : "Unlock pricing"}
+                    </button>
+                  )}
                   {view.status === "Accepted" &&
                     view.mockup_status !== "Approved" && (
                       <button
@@ -1324,6 +1423,23 @@ export default function Home() {
                     <Printer size={16} /> Print / PDF
                   </button>
                 </div>
+              </div>
+              <div className="pipeline no-print">
+                <span
+                  className={
+                    "pipeline-step" +
+                    (view.pricing_status === "Priced" ? " done" : "")
+                  }
+                >
+                  {view.pricing_status === "Priced" ? (
+                    <CheckCircle2 size={14} />
+                  ) : (
+                    <Circle size={14} />
+                  )}
+                  {view.pricing_status === "Priced"
+                    ? "Priced"
+                    : "Awaiting pricing"}
+                </span>
               </div>
               {view.status === "Accepted" && (
                 <div className="pipeline no-print">
@@ -1489,9 +1605,18 @@ export default function Home() {
                           </TableCell>
                           <TableCell data-label="Status">
                             <span className="badge">{q.status}</span>
+                            {q.pricing_status !== "Priced" && (
+                              <span className="badge pending">
+                                Awaiting pricing
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell data-label="Subtotal · OMR">
-                            <strong>{money(q.total)}</strong>
+                            <strong>
+                              {q.pricing_status === "Priced"
+                                ? money(q.total)
+                                : "—"}
+                            </strong>
                           </TableCell>
                           <TableCell className="card-actions">
                             <button
@@ -2243,6 +2368,61 @@ export default function Home() {
             </section>
           )}
         </TabsContent>
+        <TabsContent value="pricing">
+          <section className="panel">
+            <div className="section-head">
+              <h2>Pricing queue</h2>
+              <span className="badge">{pricingQueue.length} awaiting</span>
+            </div>
+            {pricingQueue.length ? (
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Quotation</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pricingQueue.map((q) => (
+                    <TableRow key={q.id}>
+                      <TableCell data-label="Quotation" className="card-title">
+                        Q-{String(q.number).padStart(4, "0")}
+                      </TableCell>
+                      <TableCell data-label="Agent">
+                        {agentName(q.agent)}
+                      </TableCell>
+                      <TableCell data-label="Customer">
+                        {q.customer}
+                      </TableCell>
+                      <TableCell data-label="Items">
+                        {q.lines.length}
+                      </TableCell>
+                      <TableCell data-label="Date">
+                        {new Date(q.created).toLocaleDateString("en-OM")}
+                      </TableCell>
+                      <TableCell data-label="" className="card-actions">
+                        <button
+                          className="secondary"
+                          onClick={() => openPricing(q)}
+                        >
+                          <DollarSign size={16} /> Price this quote
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Blank title="Nothing waiting on you">
+                New quotations appear here as soon as an agent saves one.
+              </Blank>
+            )}
+          </section>
+        </TabsContent>
         <TabsContent value="studio">
           <div className="studio-layout">
             <form className="panel" onSubmit={generateMockup}>
@@ -2639,6 +2819,7 @@ export default function Home() {
                         email: String(f.get("email") || "") || undefined,
                         password:
                           String(f.get("password") || "") || undefined,
+                        role: String(f.get("role") || "") || undefined,
                       });
                       await refresh();
                       if (!draft) {
@@ -2675,6 +2856,12 @@ export default function Home() {
                         placeholder="At least 8 characters"
                         autoComplete="new-password"
                       />
+                    </Field>
+                    <Field label="Role">
+                      <select name="role" className="choice">
+                        <option value="">Sales agent</option>
+                        <option value="pricing">Pricing</option>
+                      </select>
                     </Field>
                   </div>
                   <button className="secondary" disabled={!!busy}>
@@ -3012,6 +3199,76 @@ export default function Home() {
             >
               <MessageCircle size={16} /> Start conversation
             </button>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!pricingQuote}
+        onOpenChange={(open) => !open && setPricingQuote(null)}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {pricingQuote &&
+              `Price Q-${String(pricingQuote.number).padStart(4, "0")}`}
+          </DialogTitle>
+          <DialogDescription>
+            {pricingQuote &&
+              `For ${pricingQuote.customer} · prepared by ${agentName(pricingQuote.agent)}`}
+          </DialogDescription>
+          {pricingQuote && (
+            <form className="pricing-form" onSubmit={submitPricing}>
+              {pricingQuote.lines.map((l) => (
+                <div className="pricing-line" key={l.productId}>
+                  <div>
+                    <strong>{l.name}</strong>
+                    <small>
+                      {l.sku} · Qty {l.quantity}
+                      {l.branding ? " · " + l.branding : ""}
+                    </small>
+                  </div>
+                  <Field label="Unit price · OMR">
+                    <input
+                      type="number"
+                      min="0"
+                      max="1000000"
+                      step="0.001"
+                      value={(pricingLines[l.productId] ?? 0) / 1000}
+                      onChange={(e) =>
+                        setPricingLines((lines) => ({
+                          ...lines,
+                          [l.productId]: Math.round(
+                            Number(e.target.value) * 1000,
+                          ),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <div className="line-total">
+                    <small>Line total · OMR</small>
+                    <strong>
+                      {money(l.quantity * (pricingLines[l.productId] ?? 0))}
+                    </strong>
+                  </div>
+                </div>
+              ))}
+              <div className="quote-bottom">
+                <div>
+                  <small>Subtotal · OMR</small>
+                  <strong>
+                    {money(
+                      pricingQuote.lines.reduce(
+                        (n, l) =>
+                          n + l.quantity * (pricingLines[l.productId] ?? 0),
+                        0,
+                      ),
+                    )}
+                  </strong>
+                </div>
+                <button className="primary" disabled={!!busy}>
+                  <Check size={16} /> Submit pricing
+                </button>
+              </div>
+            </form>
           )}
         </DialogContent>
       </Dialog>
