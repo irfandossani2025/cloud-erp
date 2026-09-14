@@ -16,6 +16,14 @@ export type Product = {
   sale_baisa: number | null;
   cost_baisa: number;
 };
+export type SalesGoal = {
+  id: string;
+  agent_id: string;
+  period: string;
+  target_baisa: number;
+  created: string;
+  updated: string;
+};
 export type Company = {
   id: string;
   key: string;

@@ -28,11 +28,13 @@ class ErpController extends Controller
         $activities = DB::table('customer_activities')->orderByDesc('created');
         $deliveryNotes = DB::table('delivery_notes')->orderByDesc('number');
         $invoices = DB::table('invoices')->orderByDesc('number');
+        $salesGoals = DB::table('sales_goals');
         if (!$isAdmin) {
             $agents->where('id', $agentId);
             $customers->where('agent', $agentId);
             $activities->where('agent', $agentId);
             $deliveryNotes->where('agent', $agentId);
+            $salesGoals->where('agent_id', $agentId);
         }
         if (!$seesAllQuotes) {
             $quotes->where('agent', $agentId);
@@ -69,6 +71,7 @@ class ErpController extends Controller
             'customerActivities' => $activities->get(),
             'deliveryNotes' => $deliveryNotes->get()->map(fn ($d) => [...(array) $d, 'lines' => json_decode($d->lines, true)]),
             'invoices' => $invoices->get()->map(fn ($i) => [...(array) $i, 'lines' => json_decode($i->lines, true)]),
+            'salesGoals' => $salesGoals->get(),
             'settings' => $settings ? [...(array) $settings, 'rate' => (float) $settings->rate] : ['rate' => config('erp.default_rate'), 'company' => 'Cloud ERP', 'vat_number' => null, 'updated' => null],
             'vatRate' => config('erp.vat_rate'),
             'supplierConfigured' => (bool) (config('erp.supplier_username') && config('erp.supplier_password')),
@@ -83,7 +86,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,company_update',
+            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -132,6 +135,23 @@ class ErpController extends Controller
             $this->access->admin($request);
             $v = $request->validate(['id' => 'required|uuid|exists:companies,id', 'vatNumber' => 'nullable|string|max:50']);
             DB::table('companies')->where('id', $v['id'])->update(['vat_number' => $v['vatNumber'] ?? null]);
+        }
+        if ($action === 'sales_goal') {
+            $v = $request->validate([
+                'agentId' => 'required|uuid|exists:agents,id',
+                'period' => ['required', 'regex:/^\d{4}-\d{2}$/'],
+                'targetBaisa' => 'required|integer|min:0|max:1000000000000',
+            ]);
+            $this->access->agent($request, $v['agentId']);
+            $existing = DB::table('sales_goals')->where('agent_id', $v['agentId'])->where('period', $v['period'])->first();
+            if ($existing) {
+                DB::table('sales_goals')->where('id', $existing->id)->update(['target_baisa' => $v['targetBaisa'], 'updated' => now()->toIso8601String()]);
+            } else {
+                DB::table('sales_goals')->insert([
+                    'id' => (string) Str::uuid(), 'agent_id' => $v['agentId'], 'period' => $v['period'],
+                    'target_baisa' => $v['targetBaisa'], 'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
+                ]);
+            }
         }
         if ($action === 'quote') return $this->quote($request);
         if ($action === 'quote_price') return $this->quotePrice($request);

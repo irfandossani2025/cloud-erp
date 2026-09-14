@@ -41,6 +41,10 @@ import {
   AlertTriangle,
   Flag,
   BarChart3,
+  LayoutDashboard,
+  Target,
+  ListChecks,
+  TrendingUp,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -71,6 +75,7 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
+import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
@@ -86,6 +91,7 @@ import {
   type DeliveryNote,
   type Invoice,
   type Company,
+  type SalesGoal,
 } from "@/lib/domain";
 type Agent = { id: string; name: string };
 type State = {
@@ -97,6 +103,7 @@ type State = {
   customerActivities: CustomerActivity[];
   deliveryNotes: DeliveryNote[];
   invoices: Invoice[];
+  salesGoals: SalesGoal[];
   settings: {
     company: string;
     rate: number;
@@ -160,6 +167,7 @@ const initial: State = {
   customerActivities: [],
   deliveryNotes: [],
   invoices: [],
+  salesGoals: [],
   settings: {
     company: "Cloud ERP",
     rate: DEFAULT_AED_OMR_RATE,
@@ -246,7 +254,7 @@ export default function Home() {
   const [data, setData] = useState<State>(initial),
     [loaded, setLoaded] = useState(false),
     [loadError, setLoadError] = useState(""),
-    [tab, setTab] = useState("quotations"),
+    [tab, setTab] = useState("dashboard"),
     [agent, setAgent] = useState(""),
     [busy, setBusy] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null),
@@ -283,6 +291,7 @@ export default function Home() {
   const [outcomeQuote, setOutcomeQuote] = useState<Quote | null>(null),
     [outcomeChoice, setOutcomeChoice] = useState(""),
     [outcomeReason, setOutcomeReason] = useState("");
+  const [goalDraft, setGoalDraft] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -529,6 +538,67 @@ export default function Home() {
       onHold: qs.filter((q) => q.outcome === "OnHold").length,
     };
   });
+  const currentPeriod = todayIso.slice(0, 7);
+  const myWon = quoteList.filter((q) => q.outcome === "Won");
+  const myLost = quoteList.filter((q) => q.outcome === "Lost");
+  const myOnHold = quoteList.filter((q) => q.outcome === "OnHold");
+  const myOpen = quoteList.filter((q) => !q.outcome);
+  const myWonThisMonth = myWon.filter(
+    (q) => (q.outcome_at || "").slice(0, 7) === currentPeriod,
+  );
+  const myWonThisMonthValue = myWonThisMonth.reduce((n, q) => n + q.total, 0);
+  const myPipelineValue = myOpen.reduce((n, q) => n + q.total, 0);
+  const myWinRate =
+    myWon.length + myLost.length
+      ? Math.round((myWon.length / (myWon.length + myLost.length)) * 100)
+      : null;
+  const currentGoal = data.salesGoals.find(
+    (g) => g.agent_id === agent && g.period === currentPeriod,
+  );
+  const myOverdueInvoices = invoiceList.filter(isOverdue);
+  const todoItems = [
+    {
+      count: quoteList.filter(
+        (q) => q.status === "Draft" && q.pricing_status === "Priced",
+      ).length,
+      label: "priced draft(s) ready to review and accept",
+      tab: "quotations",
+    },
+    {
+      count: quoteList.filter(
+        (q) => q.status === "Draft" && q.pricing_status === "Pending",
+      ).length,
+      label: "quotation(s) awaiting pricing",
+      tab: "quotations",
+    },
+    {
+      count: quoteList.filter(
+        (q) => q.status === "Accepted" && !hasDeliveryNote(q.id),
+      ).length,
+      label: "accepted quotation(s) need a delivery note",
+      tab: "quotations",
+    },
+    {
+      count: quoteList.filter(
+        (q) =>
+          q.status === "Accepted" &&
+          hasDeliveryNote(q.id) &&
+          !hasInvoice(q.id),
+      ).length,
+      label: "delivered order(s) not yet invoiced",
+      tab: "documents",
+    },
+    {
+      count: myOnHold.length,
+      label: "quotation(s) on hold need a follow-up",
+      tab: "reports",
+    },
+    {
+      count: myOverdueInvoices.length,
+      label: "invoice(s) overdue",
+      tab: "documents",
+    },
+  ].filter((i) => i.count > 0);
   function startDraft() {
     if (!agent) {
       setTab("settings");
@@ -819,6 +889,20 @@ export default function Home() {
       toast.success("Outcome updated");
     });
   }
+  async function submitGoal(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!agent || !goalDraft) return;
+    await perform("sales-goal", async () => {
+      await api("sales_goal", {
+        agentId: agent,
+        period: currentPeriod,
+        targetBaisa: Math.round(Number(goalDraft) * 1000),
+      });
+      await refresh();
+      setGoalDraft("");
+      toast.success("Sales goal saved");
+    });
+  }
   async function startConversation() {
     if (!composeRecipients.length) return;
     await perform("new-conversation", async () => {
@@ -938,18 +1022,22 @@ export default function Home() {
           <h1>
             {draft
               ? "Build a thoughtful quotation."
-              : tab === "studio"
-                ? "Make the gift their own."
-                : tab === "inventory"
-                  ? "Every product. One place."
-                  : tab === "settings"
-                    ? "Your workspace, your way."
-                    : "Every great gift starts here."}
+              : tab === "dashboard"
+                ? "Your sales, at a glance."
+                : tab === "studio"
+                  ? "Make the gift their own."
+                  : tab === "inventory"
+                    ? "Every product. One place."
+                    : tab === "settings"
+                      ? "Your workspace, your way."
+                      : "Every great gift starts here."}
           </h1>
           <p>
             {tab === "studio"
               ? "Turn a product photograph and a customer logo into a branded preview."
-              : "Products, availability and quotations. Together in one workspace."}
+              : tab === "dashboard"
+                ? "Pipeline, goals and what needs your attention today."
+                : "Products, availability and quotations. Together in one workspace."}
           </p>
         </div>
         <button
@@ -980,6 +1068,10 @@ export default function Home() {
         }}
       >
         <TabsList className="navigation">
+          <TabsTrigger value="dashboard">
+            <LayoutDashboard />
+            Dashboard
+          </TabsTrigger>
           <TabsTrigger value="quotations">
             <FileText />
             Quotations
@@ -1034,6 +1126,113 @@ export default function Home() {
             Settings
           </TabsTrigger>
         </TabsList>
+        <TabsContent value="dashboard">
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span className="stat-label">Quotations</span>
+              <strong className="stat-value">{quoteList.length}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Pipeline · OMR</span>
+              <strong className="stat-value">{money(myPipelineValue)}</strong>
+            </div>
+            <div className="stat-card stat-card-won">
+              <span className="stat-label">Won this month · OMR</span>
+              <strong className="stat-value">
+                {money(myWonThisMonthValue)}
+              </strong>
+            </div>
+            <div className="stat-card stat-card-warn">
+              <span className="stat-label">Lost</span>
+              <strong className="stat-value">{myLost.length}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Win rate</span>
+              <strong className="stat-value">
+                {myWinRate === null ? "—" : `${myWinRate}%`}
+              </strong>
+            </div>
+          </div>
+          <div className="settings-grid">
+            <section className="panel">
+              <div className="section-head">
+                <h2 className="icon-heading">
+                  <Target size={18} /> Sales goal ·{" "}
+                  {new Date(currentPeriod + "-01").toLocaleDateString(
+                    "en-OM",
+                    { month: "long", year: "numeric" },
+                  )}
+                </h2>
+              </div>
+              {currentGoal ? (
+                <>
+                  <p className="helper">
+                    OMR {money(myWonThisMonthValue)} won of your OMR{" "}
+                    {money(currentGoal.target_baisa)} goal
+                  </p>
+                  <Progress
+                    value={Math.min(
+                      100,
+                      (myWonThisMonthValue / currentGoal.target_baisa) * 100,
+                    )}
+                  />
+                </>
+              ) : (
+                <Blank title="No goal set for this month">
+                  Set a target and track your won quotations against it.
+                </Blank>
+              )}
+              <form className="goal-form" onSubmit={submitGoal}>
+                <Field label="Set monthly goal · OMR">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={goalDraft}
+                    onChange={(e) => setGoalDraft(e.target.value)}
+                    placeholder={
+                      currentGoal
+                        ? String(currentGoal.target_baisa / 1000)
+                        : "e.g. 5000"
+                    }
+                  />
+                </Field>
+                <button
+                  className="secondary"
+                  disabled={!!busy || !agent || !goalDraft}
+                >
+                  <Check size={16} /> Save goal
+                </button>
+              </form>
+            </section>
+            <section className="panel">
+              <div className="section-head">
+                <h2 className="icon-heading">
+                  <ListChecks size={18} /> To-do
+                </h2>
+                <span className="badge">{todoItems.length}</span>
+              </div>
+              {todoItems.length ? (
+                <div className="todo-list">
+                  {todoItems.map((item) => (
+                    <button
+                      key={item.label}
+                      className="todo-item"
+                      onClick={() => setTab(item.tab)}
+                    >
+                      <span className="todo-count">{item.count}</span>
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Blank title="You're all caught up">
+                  Nothing needs your attention right now.
+                </Blank>
+              )}
+            </section>
+          </div>
+        </TabsContent>
         <TabsContent value="quotations">
           {draft ? (
             <div className="builder">

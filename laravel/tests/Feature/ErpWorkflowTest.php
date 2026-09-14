@@ -666,4 +666,47 @@ class ErpWorkflowTest extends TestCase
         ])->assertOk();
         $this->assertDatabaseHas('companies', ['id' => $companyId, 'vat_number' => 'OM123456789']);
     }
+
+    public function test_agent_can_set_and_update_their_own_monthly_sales_goal(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'sales_goal', 'agentId' => $agentId, 'period' => '2026-09', 'targetBaisa' => 500000,
+        ])->assertOk();
+        $this->assertDatabaseHas('sales_goals', ['agent_id' => $agentId, 'period' => '2026-09', 'target_baisa' => 500000]);
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'sales_goal', 'agentId' => $agentId, 'period' => '2026-09', 'targetBaisa' => 750000,
+        ])->assertOk();
+        $this->assertDatabaseHas('sales_goals', ['agent_id' => $agentId, 'period' => '2026-09', 'target_baisa' => 750000]);
+        $this->assertDatabaseCount('sales_goals', 1);
+    }
+
+    public function test_agent_cannot_set_another_agents_sales_goal(): void
+    {
+        [$agentA] = $this->makeAgent('Agent A');
+        [, $agentBId] = $this->makeAgent('Agent B');
+        $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'sales_goal', 'agentId' => $agentBId, 'period' => '2026-09', 'targetBaisa' => 500000,
+        ])->assertForbidden();
+    }
+
+    public function test_a_regular_agent_only_sees_their_own_sales_goals(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB, $agentBId] = $this->makeAgent('Agent B');
+        $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'sales_goal', 'agentId' => $agentAId, 'period' => '2026-09', 'targetBaisa' => 500000,
+        ])->assertOk();
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'sales_goal', 'agentId' => $agentBId, 'period' => '2026-09', 'targetBaisa' => 900000,
+        ])->assertOk();
+
+        $agentAView = $this->actingAs($agentA)->getJson('/api/erp')->json();
+        $this->assertCount(1, $agentAView['salesGoals']);
+
+        [$admin] = $this->makeAgent('Admin User', true);
+        $adminView = $this->actingAs($admin)->getJson('/api/erp')->json();
+        $this->assertCount(2, $adminView['salesGoals']);
+    }
 }
