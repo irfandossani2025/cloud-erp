@@ -93,7 +93,12 @@ import {
   type Company,
   type SalesGoal,
 } from "@/lib/domain";
-type Agent = { id: string; name: string };
+type Agent = {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+};
 type State = {
   products: Product[];
   quotes: Quote[];
@@ -293,6 +298,8 @@ export default function Home() {
     [outcomeChoice, setOutcomeChoice] = useState(""),
     [outcomeReason, setOutcomeReason] = useState("");
   const [goalDraft, setGoalDraft] = useState("");
+  const [passwordAgent, setPasswordAgent] = useState<Agent | null>(null),
+    [passwordDraft, setPasswordDraft] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -902,6 +909,19 @@ export default function Home() {
       await refresh();
       setGoalDraft("");
       toast.success("Sales goal saved");
+    });
+  }
+  async function submitPassword(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!passwordAgent || !passwordDraft) return;
+    await perform("agent-password", async () => {
+      await api("agent_password", {
+        agentId: passwordAgent.id,
+        password: passwordDraft,
+      });
+      setPasswordAgent(null);
+      setPasswordDraft("");
+      toast.success("Password updated for " + passwordAgent.name);
     });
   }
   async function startConversation() {
@@ -3526,7 +3546,27 @@ export default function Home() {
                   <div className="agent-row" key={a.id}>
                     <Users size={18} />
                     <strong>{a.name}</strong>
-                    <span className="badge">Quotation assistant</span>
+                    <span className="badge">
+                      {a.role === "pricing"
+                        ? "Pricing"
+                        : a.role === "accounts"
+                          ? "Accounts"
+                          : a.email
+                            ? "Sales agent"
+                            : "No sign-in"}
+                    </span>
+                    {a.email && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => {
+                          setPasswordAgent(a);
+                          setPasswordDraft("");
+                        }}
+                      >
+                        Change password
+                      </button>
+                    )}
                   </div>
                 ))}
                 <form
@@ -4024,6 +4064,38 @@ export default function Home() {
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!passwordAgent}
+        onOpenChange={(open) => !open && setPasswordAgent(null)}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {passwordAgent && `Change password · ${passwordAgent.name}`}
+          </DialogTitle>
+          <DialogDescription>
+            {passwordAgent && passwordAgent.email}
+          </DialogDescription>
+          <form className="pricing-form" onSubmit={submitPassword}>
+            <Field label="New password">
+              <input
+                type="password"
+                required
+                minLength={8}
+                maxLength={72}
+                autoComplete="new-password"
+                value={passwordDraft}
+                onChange={(e) => setPasswordDraft(e.target.value)}
+                placeholder="At least 8 characters"
+              />
+            </Field>
+            <div className="quote-bottom">
+              <button className="primary" disabled={!!busy}>
+                <Check size={16} /> Update password
+              </button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </main>

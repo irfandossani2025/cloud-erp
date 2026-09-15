@@ -22,7 +22,10 @@ class ErpController extends Controller
         $canSeeCost = $isAdmin || $role === 'pricing';
         $seesAllInvoices = $isAdmin || $role === 'accounts';
 
-        $agents = DB::table('agents')->orderBy('name');
+        $agents = DB::table('agents')
+            ->leftJoin('users', 'users.agent_id', '=', 'agents.id')
+            ->select('agents.id', 'agents.name', 'users.email', 'users.role')
+            ->orderBy('agents.name');
         $quotes = DB::table('quotes')->orderByDesc('number');
         $customers = DB::table('customers')->orderByDesc('updated');
         $activities = DB::table('customer_activities')->orderByDesc('created');
@@ -30,7 +33,7 @@ class ErpController extends Controller
         $invoices = DB::table('invoices')->orderByDesc('number');
         $salesGoals = DB::table('sales_goals');
         if (!$isAdmin) {
-            $agents->where('id', $agentId);
+            $agents->where('agents.id', $agentId);
             $customers->where('agent', $agentId);
             $activities->where('agent', $agentId);
             $deliveryNotes->where('agent', $agentId);
@@ -86,7 +89,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -126,6 +129,17 @@ class ErpController extends Controller
                 return $id;
             });
             return response()->json(['id' => $id]);
+        }
+        if ($action === 'agent_password') {
+            $this->access->admin($request);
+            $v = $request->validate([
+                'agentId' => 'required|uuid|exists:agents,id',
+                'password' => 'required|string|min:8|max:72',
+            ]);
+            $user = User::where('agent_id', $v['agentId'])->first();
+            abort_unless($user, 422, 'This sales agent does not have a sign-in login.');
+            $user->password = $v['password'];
+            $user->save();
         }
         if ($action === 'settings') {
             $v = $request->validate(['rate' => 'required|numeric|gt:0|max:100', 'company' => 'required|string|max:200', 'vatNumber' => 'nullable|string|max:50']);

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -314,6 +315,37 @@ class ErpWorkflowTest extends TestCase
             'password' => 'a-strong-password',
         ])->assertOk();
         $this->assertDatabaseHas('users', ['email' => 'new.agent@test.invalid', 'is_admin' => false]);
+    }
+
+    public function test_admin_can_change_a_sales_agents_password(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_password', 'agentId' => $agentId, 'password' => 'a-new-strong-password',
+        ])->assertOk();
+        $this->assertTrue(
+            Hash::check('a-new-strong-password', $agent->fresh()->password),
+        );
+    }
+
+    public function test_non_admin_cannot_change_a_password(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB] = $this->makeAgent('Agent B');
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'agent_password', 'agentId' => $agentAId, 'password' => 'a-new-strong-password',
+        ])->assertForbidden();
+    }
+
+    public function test_cannot_change_password_for_an_agent_with_no_login(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $agentId = (string) Str::uuid();
+        DB::table('agents')->insert(['id' => $agentId, 'name' => 'No Login Agent']);
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_password', 'agentId' => $agentId, 'password' => 'a-new-strong-password',
+        ])->assertStatus(422);
     }
 
     public function test_agent_can_create_and_update_their_own_customer(): void
