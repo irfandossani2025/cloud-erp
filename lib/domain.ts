@@ -111,6 +111,7 @@ export type DeliveryNote = {
   company_id: string;
   customer: string;
   address: string;
+  po_number: string | null;
   lines: DeliveryLine[];
   notes: string;
   status: string;
@@ -132,6 +133,7 @@ export type Invoice = {
   company_id: string;
   customer: string;
   email: string;
+  po_number: string | null;
   lines: InvoiceLine[];
   subtotal: number;
   vat_baisa: number;

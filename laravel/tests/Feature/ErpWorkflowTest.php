@@ -464,6 +464,102 @@ class ErpWorkflowTest extends TestCase
         $this->assertDatabaseCount('invoices', 1);
     }
 
+    public function test_agent_can_set_a_purchase_order_number_on_a_delivery_note(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_update', 'id' => $dnId, 'poNumber' => 'PO-12345',
+        ])->assertOk();
+        $this->assertDatabaseHas('delivery_notes', ['id' => $dnId, 'po_number' => 'PO-12345']);
+    }
+
+    public function test_agent_can_clear_a_purchase_order_number(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_update', 'id' => $dnId, 'poNumber' => 'PO-12345',
+        ])->assertOk();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_update', 'id' => $dnId, 'poNumber' => null,
+        ])->assertOk();
+        $this->assertDatabaseHas('delivery_notes', ['id' => $dnId, 'po_number' => null]);
+    }
+
+    public function test_agent_cannot_set_a_purchase_order_number_on_another_agents_delivery_note(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agentA, $agentAId, $productId);
+        $dnId = $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'delivery_note_update', 'id' => $dnId, 'poNumber' => 'PO-12345',
+        ])->assertForbidden();
+    }
+
+    public function test_purchase_order_number_carries_from_delivery_note_to_auto_generated_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_update', 'id' => $dnId, 'poNumber' => 'PO-98765',
+        ])->assertOk();
+        $response = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note_status', 'id' => $dnId, 'status' => 'Delivered',
+        ])->assertOk();
+        $this->assertDatabaseHas('invoices', ['id' => $response->json('invoiceId'), 'po_number' => 'PO-98765']);
+    }
+
+    public function test_agent_can_set_a_purchase_order_number_on_an_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice_update', 'id' => $invId, 'poNumber' => 'PO-55555',
+        ])->assertOk();
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'po_number' => 'PO-55555']);
+    }
+
+    public function test_agent_cannot_set_a_purchase_order_number_on_another_agents_invoice(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agentA, $agentAId, $productId);
+        $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'invoice', 'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'invoice_update', 'id' => $invId, 'poNumber' => 'PO-55555',
+        ])->assertForbidden();
+    }
+
     public function test_a_quote_cannot_be_invoiced_twice(): void
     {
         [$agent, $agentId] = $this->makeAgent('Agent One');

@@ -2417,6 +2417,39 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              <form
+                key={viewDeliveryNote.id}
+                className="po-form no-print"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void perform("dn-po", async () => {
+                    await api("delivery_note_update", {
+                      id: viewDeliveryNote.id,
+                      poNumber: String(f.get("poNumber") || "") || undefined,
+                    });
+                    const d = await refresh();
+                    setViewDeliveryNote(
+                      d.deliveryNotes.find(
+                        (n) => n.id === viewDeliveryNote.id,
+                      ) || null,
+                    );
+                    toast.success("Purchase order number saved");
+                  });
+                }}
+              >
+                <Field label="Purchase order number (optional)">
+                  <input
+                    name="poNumber"
+                    maxLength={100}
+                    defaultValue={viewDeliveryNote.po_number ?? ""}
+                    placeholder="Customer's PO number"
+                  />
+                </Field>
+                <button className="secondary" disabled={!!busy}>
+                  <Check size={16} /> Save
+                </button>
+              </form>
               <div className="print-document">
                 <div className="document-heading">
                   <div>
@@ -2436,6 +2469,9 @@ export default function Home() {
                       {String(viewDeliveryNote.number).padStart(4, "0")}
                     </h2>
                     <span className="badge">{viewDeliveryNote.status}</span>
+                    {viewDeliveryNote.po_number && (
+                      <small>PO: {viewDeliveryNote.po_number}</small>
+                    )}
                   </div>
                   <div>
                     <small>Deliver to</small>
@@ -2520,6 +2556,37 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              <form
+                key={viewInvoice.id}
+                className="po-form no-print"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void perform("inv-po", async () => {
+                    await api("invoice_update", {
+                      id: viewInvoice.id,
+                      poNumber: String(f.get("poNumber") || "") || undefined,
+                    });
+                    const d = await refresh();
+                    setViewInvoice(
+                      d.invoices.find((i) => i.id === viewInvoice.id) || null,
+                    );
+                    toast.success("Purchase order number saved");
+                  });
+                }}
+              >
+                <Field label="Purchase order number (optional)">
+                  <input
+                    name="poNumber"
+                    maxLength={100}
+                    defaultValue={viewInvoice.po_number ?? ""}
+                    placeholder="Customer's PO number"
+                  />
+                </Field>
+                <button className="secondary" disabled={!!busy}>
+                  <Check size={16} /> Save
+                </button>
+              </form>
               <div className="print-document">
                 <div className="document-heading">
                   <div>
@@ -2542,6 +2609,9 @@ export default function Home() {
                       <small>
                         VAT reg. {companyFor(viewInvoice.company_id).vat_number}
                       </small>
+                    )}
+                    {viewInvoice.po_number && (
+                      <small>PO: {viewInvoice.po_number}</small>
                     )}
                   </div>
                   <div>

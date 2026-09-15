@@ -86,7 +86,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,invoice,invoice_status,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -204,7 +204,19 @@ class ErpController extends Controller
             }
             return response()->json(['ok' => true, 'invoiceId' => $invoiceId]);
         }
+        if ($action === 'delivery_note_update') {
+            $v = $request->validate(['id' => 'required|uuid|exists:delivery_notes,id', 'poNumber' => 'nullable|string|max:100']);
+            $dn = DB::table('delivery_notes')->where('id', $v['id'])->first();
+            $this->access->agent($request, $dn->agent);
+            DB::table('delivery_notes')->where('id', $v['id'])->update(['po_number' => $v['poNumber'] ?? null, 'updated' => now()->toIso8601String()]);
+        }
         if ($action === 'invoice') return $this->invoice($request);
+        if ($action === 'invoice_update') {
+            $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'poNumber' => 'nullable|string|max:100']);
+            $inv = DB::table('invoices')->where('id', $v['id'])->first();
+            $this->access->agent($request, $inv->agent);
+            DB::table('invoices')->where('id', $v['id'])->update(['po_number' => $v['poNumber'] ?? null, 'updated' => now()->toIso8601String()]);
+        }
         if ($action === 'invoice_status') {
             $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'status' => 'required|in:Draft,Sent,Cancelled']);
             $inv = DB::table('invoices')->where('id', $v['id'])->first();
@@ -419,9 +431,10 @@ class ErpController extends Controller
         $vat = (int) round($subtotal * config('erp.vat_rate'));
         $total = $subtotal + $vat;
         $id = (string) Str::uuid();
+        $poNumber = DB::table('delivery_notes')->where('quote_id', $quote->id)->value('po_number');
         DB::table('invoices')->insert([
             'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
-            'customer' => $quote->customer, 'email' => $quote->email,
+            'customer' => $quote->customer, 'email' => $quote->email, 'po_number' => $poNumber,
             'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
             'subtotal' => $subtotal, 'vat_baisa' => $vat, 'total' => $total,
             'status' => 'Draft', 'notes' => $notes, 'due_date' => $dueDate,
