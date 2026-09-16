@@ -1837,34 +1837,51 @@ export default function Home() {
               )}
               <div className="print-document">
                 <div className="document-heading">
-                  <div>
+                  <div className="document-brand">
                     <img
                       className="quotation-logo"
                       src={companyFor(view.company_id).logo_path}
                       alt={companyFor(view.company_id).name + " logo"}
-                      width={100}
-                      height={100}
+                      width={72}
+                      height={72}
                     />
-                    <p className="eyebrow">
+                    <strong>
                       {companyFor(view.company_id).trading_name ||
                         companyFor(view.company_id).name}
-                    </p>
-                    <h2>Quotation Q-{String(view.number).padStart(4, "0")}</h2>
-                    <span className="badge">{view.status}</span>
+                    </strong>
+                    {companyFor(view.company_id).trading_name && (
+                      <small>{companyFor(view.company_id).name}</small>
+                    )}
                   </div>
+                  <div className="document-meta">
+                    <p className="eyebrow">Quotation</p>
+                    <h1>Q-{String(view.number).padStart(4, "0")}</h1>
+                    <div className="document-meta-row">
+                      <span>Date</span>
+                      <strong>
+                        {new Date(view.created).toLocaleDateString("en-OM")}
+                      </strong>
+                    </div>
+                    <div className="document-meta-row">
+                      <span>Status</span>
+                      <span className="badge">{view.status}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="document-parties">
                   <div>
-                    <small>Prepared for</small>
+                    <p className="document-label">Prepared for</p>
                     <h2>{view.customer}</h2>
-                    <p>{view.email}</p>
+                    {view.email && <p>{view.email}</p>}
                   </div>
                 </div>
                 <Table className="responsive-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Unit · OMR</TableHead>
-                      <TableHead>Total · OMR</TableHead>
+                      <TableHead className="num">Quantity</TableHead>
+                      <TableHead className="num">Unit · OMR</TableHead>
+                      <TableHead className="num">Total · OMR</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1884,13 +1901,13 @@ export default function Home() {
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell data-label="Quantity">
+                          <TableCell data-label="Quantity" className="num">
                             {l.quantity}
                           </TableCell>
-                          <TableCell data-label="Unit · OMR">
+                          <TableCell data-label="Unit · OMR" className="num">
                             {money(l.unitBaisa)}
                           </TableCell>
-                          <TableCell data-label="Total · OMR">
+                          <TableCell data-label="Total · OMR" className="num">
                             {money(l.quantity * l.unitBaisa)}
                           </TableCell>
                         </TableRow>
@@ -1898,15 +1915,30 @@ export default function Home() {
                     })}
                   </TableBody>
                 </Table>
-                <div className="document-total">
-                  Subtotal <strong>OMR {money(view.total)}</strong>
+                <div className="invoice-summary">
+                  <div className="invoice-summary-total">
+                    <span>Total (excl. VAT)</span>
+                    <strong>OMR {money(view.total)}</strong>
+                  </div>
                 </div>
-                <p className="preserve-lines">{view.notes}</p>
-                <p className="helper">
-                  Prepared by{" "}
-                  {data.agents.find((a) => a.id === view.agent)?.name} ·{" "}
-                  {new Date(view.created).toLocaleDateString("en-OM")}
-                </p>
+                {view.notes && (
+                  <>
+                    <p className="document-label">Notes</p>
+                    <p className="preserve-lines">{view.notes}</p>
+                  </>
+                )}
+                <div className="document-footer">
+                  <p className="document-thanks">
+                    Thank you for considering{" "}
+                    {companyFor(view.company_id).trading_name ||
+                      companyFor(view.company_id).name}
+                    .
+                  </p>
+                  <p className="helper">
+                    Prepared by{" "}
+                    {data.agents.find((a) => a.id === view.agent)?.name}
+                  </p>
+                </div>
               </div>
             </section>
           ) : (
@@ -2634,52 +2666,74 @@ export default function Home() {
               </form>
               <div className="print-document">
                 <div className="document-heading">
-                  <div>
+                  <div className="document-brand">
                     <img
                       className="quotation-logo"
                       src={companyFor(viewInvoice.company_id).logo_path}
                       alt={companyFor(viewInvoice.company_id).name + " logo"}
-                      width={100}
-                      height={100}
+                      width={72}
+                      height={72}
                     />
-                    <p className="eyebrow">
+                    <strong>
                       {companyFor(viewInvoice.company_id).trading_name ||
                         companyFor(viewInvoice.company_id).name}
-                    </p>
-                    <h2>
-                      Invoice INV-{String(viewInvoice.number).padStart(4, "0")}
-                    </h2>
-                    <span className="badge">{viewInvoice.status}</span>
+                    </strong>
+                    {companyFor(viewInvoice.company_id).trading_name && (
+                      <small>{companyFor(viewInvoice.company_id).name}</small>
+                    )}
                     {companyFor(viewInvoice.company_id).vat_number && (
                       <small>
                         VAT reg. {companyFor(viewInvoice.company_id).vat_number}
                       </small>
                     )}
-                    {viewInvoice.po_number && (
-                      <small>PO: {viewInvoice.po_number}</small>
-                    )}
                   </div>
-                  <div>
-                    <small>Billed to</small>
-                    <h2>{viewInvoice.customer}</h2>
-                    <p>{viewInvoice.email}</p>
-                    {viewInvoice.due_date && (
-                      <small>
-                        Due{" "}
-                        {new Date(viewInvoice.due_date).toLocaleDateString(
+                  <div className="document-meta">
+                    <p className="eyebrow">Invoice</p>
+                    <h1>INV-{String(viewInvoice.number).padStart(4, "0")}</h1>
+                    <div className="document-meta-row">
+                      <span>Date</span>
+                      <strong>
+                        {new Date(viewInvoice.created).toLocaleDateString(
                           "en-OM",
                         )}
-                      </small>
+                      </strong>
+                    </div>
+                    <div className="document-meta-row">
+                      <span>Status</span>
+                      <span className="badge">{viewInvoice.status}</span>
+                    </div>
+                    {viewInvoice.due_date && (
+                      <div className="document-meta-row">
+                        <span>Due</span>
+                        <strong>
+                          {new Date(viewInvoice.due_date).toLocaleDateString(
+                            "en-OM",
+                          )}
+                        </strong>
+                      </div>
                     )}
+                    {viewInvoice.po_number && (
+                      <div className="document-meta-row">
+                        <span>PO number</span>
+                        <strong>{viewInvoice.po_number}</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="document-parties">
+                  <div>
+                    <p className="document-label">Billed to</p>
+                    <h2>{viewInvoice.customer}</h2>
+                    {viewInvoice.email && <p>{viewInvoice.email}</p>}
                   </div>
                 </div>
                 <Table className="responsive-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Unit · OMR</TableHead>
-                      <TableHead>Total · OMR</TableHead>
+                      <TableHead className="num">Quantity</TableHead>
+                      <TableHead className="num">Unit · OMR</TableHead>
+                      <TableHead className="num">Total · OMR</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2689,13 +2743,13 @@ export default function Home() {
                           <strong>{l.name}</strong>
                           <small>{l.sku}</small>
                         </TableCell>
-                        <TableCell data-label="Quantity">
+                        <TableCell data-label="Quantity" className="num">
                           {l.quantity}
                         </TableCell>
-                        <TableCell data-label="Unit · OMR">
+                        <TableCell data-label="Unit · OMR" className="num">
                           {money(l.unitBaisa)}
                         </TableCell>
-                        <TableCell data-label="Total · OMR">
+                        <TableCell data-label="Total · OMR" className="num">
                           {money(l.quantity * l.unitBaisa)}
                         </TableCell>
                       </TableRow>
@@ -2717,13 +2771,23 @@ export default function Home() {
                   </div>
                 </div>
                 {viewInvoice.notes && (
-                  <p className="preserve-lines">{viewInvoice.notes}</p>
+                  <>
+                    <p className="document-label">Notes</p>
+                    <p className="preserve-lines">{viewInvoice.notes}</p>
+                  </>
                 )}
-                <p className="helper">
-                  Prepared by{" "}
-                  {data.agents.find((a) => a.id === viewInvoice.agent)?.name}{" "}
-                  · {new Date(viewInvoice.created).toLocaleDateString("en-OM")}
-                </p>
+                <div className="document-footer">
+                  <p className="document-thanks">
+                    Thank you for your business.
+                  </p>
+                  <p className="helper">
+                    Prepared by{" "}
+                    {
+                      data.agents.find((a) => a.id === viewInvoice.agent)
+                        ?.name
+                    }
+                  </p>
+                </div>
               </div>
             </section>
           ) : (
