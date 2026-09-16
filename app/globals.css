@@ -160,19 +160,40 @@ svg {
   border-color: var(--border);
   color: #254263;
 }
+.nav-wrap {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.nav-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.nav-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.nav-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
 .navigation {
   background: transparent !important;
   gap: 18px !important;
   padding: 0 !important;
   height: 50px !important;
-  border-bottom: 1px solid var(--border);
   border-radius: 0 !important;
-  width: 100% !important;
+  width: max-content !important;
+  min-width: 100% !important;
+  flex-wrap: nowrap !important;
   justify-content: flex-start !important;
-  margin-bottom: 20px;
 }
 .navigation button {
   flex: initial !important;
+  flex-shrink: 0 !important;
   padding: 10px 14px !important;
   border-radius: 0 !important;
   font-size: 15px !important;
@@ -182,6 +203,36 @@ svg {
   color: #1756bd !important;
   border-bottom: 3px solid #1756bd !important;
   box-shadow: none !important;
+}
+.nav-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  cursor: pointer;
+  z-index: 2;
+  color: var(--foreground);
+}
+.nav-arrow-left {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(
+    to right,
+    var(--background) 55%,
+    transparent
+  );
+}
+.nav-arrow-right {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(
+    to left,
+    var(--background) 55%,
+    transparent
+  );
 }
 .panel {
   background: white;
@@ -218,9 +269,6 @@ svg {
   .topbar {
     flex-wrap: wrap;
     padding: 16px 0;
-  }
-  .navigation {
-    overflow: auto;
   }
   .panel {
     padding: 18px;
@@ -1528,7 +1576,7 @@ th {
   }
   .topbar,
   .heading,
-  .navigation,
+  .nav-wrap,
   .no-print,
   .developer-credit,
   [data-sonner-toaster] {

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -46,6 +47,8 @@ import {
   ListChecks,
   TrendingUp,
   PieChart as PieChartIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -309,6 +312,31 @@ export default function Home() {
   const [passwordAgent, setPasswordAgent] = useState<Agent | null>(null),
     [passwordDraft, setPasswordDraft] = useState("");
   const [customerSuggestOpen, setCustomerSuggestOpen] = useState(false);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollNavLeft, setCanScrollNavLeft] = useState(false),
+    [canScrollNavRight, setCanScrollNavRight] = useState(false);
+  const updateNavScroll = useCallback(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    setCanScrollNavLeft(el.scrollLeft > 4);
+    setCanScrollNavRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+  useEffect(() => {
+    updateNavScroll();
+    const el = navScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateNavScroll, { passive: true });
+    window.addEventListener("resize", updateNavScroll);
+    return () => {
+      el.removeEventListener("scroll", updateNavScroll);
+      window.removeEventListener("resize", updateNavScroll);
+    };
+  }, [updateNavScroll, data.isAdmin, data.userRole]);
+  useEffect(() => {
+    navScrollRef.current
+      ?.querySelector('[data-state="active"]')
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [tab]);
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -1141,6 +1169,23 @@ export default function Home() {
           setPage(0);
         }}
       >
+        <div className="nav-wrap">
+          {canScrollNavLeft && (
+            <button
+              type="button"
+              className="nav-arrow nav-arrow-left"
+              aria-label="Scroll tabs left"
+              onClick={() =>
+                navScrollRef.current?.scrollBy({
+                  left: -180,
+                  behavior: "smooth",
+                })
+              }
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
+          <div className="nav-scroll" ref={navScrollRef}>
         <TabsList className="navigation">
           <TabsTrigger value="dashboard">
             <LayoutDashboard />
@@ -1200,6 +1245,23 @@ export default function Home() {
             Settings
           </TabsTrigger>
         </TabsList>
+          </div>
+          {canScrollNavRight && (
+            <button
+              type="button"
+              className="nav-arrow nav-arrow-right"
+              aria-label="Scroll tabs right"
+              onClick={() =>
+                navScrollRef.current?.scrollBy({
+                  left: 180,
+                  behavior: "smooth",
+                })
+              }
+            >
+              <ChevronRight size={18} />
+            </button>
+          )}
+        </div>
         <TabsContent value="dashboard">
           <div className="stat-grid">
             <div className="stat-card">
