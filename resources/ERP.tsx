@@ -694,7 +694,6 @@ export default function Home() {
             sku: String(f.get("sku")),
             description: String(f.get("description")),
             category: String(f.get("category")),
-            image: String(f.get("image")),
             warehouseStock: Number(f.get("warehouse")),
             costBaisa: Math.round(Number(f.get("cost")) * 1000),
             saleBaisa:
@@ -703,6 +702,19 @@ export default function Home() {
                 : Math.round(Number(f.get("sale")) * 1000),
           },
         });
+        const photo = f.get("photo");
+        if (photo instanceof File && photo.size > 0) {
+          const payload = new FormData();
+          payload.set("photo", photo);
+          const pr = await request(`/api/products/${r.id}/photo`, {
+            method: "POST",
+            body: payload,
+          });
+          if (!pr.ok) {
+            const pd = (await pr.json()) as { message?: string };
+            throw new Error(pd.message || "Could not upload the photo");
+          }
+        }
         const d = await refresh();
         if (addToDraft) {
           const p = d.products.find((p) => p.id === r.id);
@@ -1347,13 +1359,16 @@ export default function Home() {
                         return (
                           <article className="quote-line" key={i}>
                             <div className="section-head">
-                              <div>
-                                <strong>{l.name}</strong>
-                                <small>
-                                  {l.sku} · Warehouse{" "}
-                                  {p?.warehouse_stock ?? "—"} · Supplier{" "}
-                                  {p?.supplier_stock ?? "Unknown"}
-                                </small>
+                              <div className="product-cell">
+                                {p && <ProductPhoto product={p} />}
+                                <div>
+                                  <strong>{l.name}</strong>
+                                  <small>
+                                    {l.sku} · Warehouse{" "}
+                                    {p?.warehouse_stock ?? "—"} · Supplier{" "}
+                                    {p?.supplier_stock ?? "Unknown"}
+                                  </small>
+                                </div>
                               </div>
                               <button
                                 className="icon-button"
@@ -1853,24 +1868,34 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {view.lines.map((l, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="card-title">
-                          <strong>{l.name}</strong>
-                          <small>{l.sku}</small>
-                          {l.branding && <small>{l.branding}</small>}
-                        </TableCell>
-                        <TableCell data-label="Quantity">
-                          {l.quantity}
-                        </TableCell>
-                        <TableCell data-label="Unit · OMR">
-                          {money(l.unitBaisa)}
-                        </TableCell>
-                        <TableCell data-label="Total · OMR">
-                          {money(l.quantity * l.unitBaisa)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {view.lines.map((l, i) => {
+                      const p = data.products.find(
+                        (pr) => pr.id === l.productId,
+                      );
+                      return (
+                        <TableRow key={i}>
+                          <TableCell className="card-title">
+                            <div className="product-cell">
+                              {p && <ProductPhoto product={p} />}
+                              <div>
+                                <strong>{l.name}</strong>
+                                <small>{l.sku}</small>
+                                {l.branding && <small>{l.branding}</small>}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell data-label="Quantity">
+                            {l.quantity}
+                          </TableCell>
+                          <TableCell data-label="Unit · OMR">
+                            {money(l.unitBaisa)}
+                          </TableCell>
+                          <TableCell data-label="Total · OMR">
+                            {money(l.quantity * l.unitBaisa)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 <div className="document-total">
@@ -3701,9 +3726,16 @@ export default function Home() {
                 <Field label="Category">
                   <input name="category" maxLength={1000} />
                 </Field>
-                <Field label="Product image URL (optional)">
-                  <input name="image" type="url" placeholder="https://…" />
+                <Field label="Product photo (optional)">
+                  <input
+                    name="photo"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                  />
                 </Field>
+                <p className="helper">
+                  PNG, JPG or WebP, up to 8 MB.
+                </p>
               </>
             )}
             <div className={data.isAdmin ? "form-grid" : undefined}>
