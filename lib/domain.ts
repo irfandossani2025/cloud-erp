@@ -46,6 +46,7 @@ export type Quote = {
   number: number;
   agent: string;
   company_id: string;
+  customer_id: string | null;
   customer: string;
   email: string;
   notes: string;
@@ -83,6 +84,7 @@ export type Customer = {
   email: string | null;
   phone: string | null;
   address: string | null;
+  vat_number: string | null;
   stage: string;
   notes: string;
   follow_up_at: string | null;

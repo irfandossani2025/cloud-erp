@@ -382,6 +382,58 @@ class ErpWorkflowTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_customer_can_be_saved_with_a_vat_number(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => [
+                'agent' => $agentId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe',
+                'phone' => '99123456', 'address' => 'Muscat, Oman', 'vatNumber' => 'OM1234567890',
+                'stage' => 'New Lead',
+            ],
+        ])->assertOk();
+        $this->assertDatabaseHas('customers', ['company' => 'Acme LLC', 'phone' => '99123456', 'vat_number' => 'OM1234567890']);
+    }
+
+    public function test_a_quote_can_be_linked_to_an_existing_customer(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $customerId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe', 'email' => 'jane@acme.test', 'stage' => 'New Lead'],
+        ])->json('id');
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customerId' => $customerId,
+                'customer' => 'Acme LLC', 'email' => 'jane@acme.test', 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1]],
+            ],
+        ])->assertOk()->json('id');
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'customer_id' => $customerId]);
+    }
+
+    public function test_a_quote_cannot_be_linked_to_another_agents_customer(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB, $agentBId] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $customerId = $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentAId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe', 'stage' => 'New Lead'],
+        ])->json('id');
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentBId, 'companyId' => $this->companyId(), 'customerId' => $customerId,
+                'customer' => 'Acme LLC', 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1]],
+            ],
+        ])->assertStatus(422);
+    }
+
     public function test_customer_activity_can_be_logged_and_appears_in_index(): void
     {
         [$agent, $agentId] = $this->makeAgent('Agent One');

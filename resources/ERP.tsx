@@ -45,6 +45,7 @@ import {
   Target,
   ListChecks,
   TrendingUp,
+  PieChart as PieChartIcon,
 } from "lucide-react";
 import { request } from "./http";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -76,6 +77,12 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Progress } from "@/components/ui/progress";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import { PieChart, Pie, Cell } from "recharts";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
@@ -128,6 +135,7 @@ type Draft = {
   revision?: number;
   agent: string;
   companyId: string;
+  customerId: string | null;
   customer: string;
   email: string;
   notes: string;
@@ -300,6 +308,7 @@ export default function Home() {
   const [goalDraft, setGoalDraft] = useState("");
   const [passwordAgent, setPasswordAgent] = useState<Agent | null>(null),
     [passwordDraft, setPasswordDraft] = useState("");
+  const [customerSuggestOpen, setCustomerSuggestOpen] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>(
       [],
     ),
@@ -480,6 +489,18 @@ export default function Home() {
     [data.products, search, filter, tab],
   );
   const quoteList = data.quotes.filter((q) => q.agent === agent);
+  const customerMatches = draft
+    ? data.customers
+        .filter(
+          (c) =>
+            c.agent === draft.agent &&
+            (!draft.customer.trim() ||
+              c.company
+                .toLowerCase()
+                .includes(draft.customer.trim().toLowerCase())),
+        )
+        .slice(0, 6)
+    : [];
   const selectedProduct = data.products.find((p) => p.id === studioProduct);
   const customerList = data.customers.filter(
     (c) =>
@@ -563,6 +584,24 @@ export default function Home() {
   const currentGoal = data.salesGoals.find(
     (g) => g.agent_id === agent && g.period === currentPeriod,
   );
+  const outcomeChartData = [
+    { name: "Won", value: myWon.length, fill: "#1c6b34" },
+    { name: "Lost", value: myLost.length, fill: "#a32d3e" },
+    { name: "On hold", value: myOnHold.length, fill: "#815b10" },
+    { name: "Open", value: myOpen.length, fill: "#1756bd" },
+  ].filter((d) => d.value > 0);
+  const monthlyWonData = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - (5 - i));
+    const period = d.toISOString().slice(0, 7);
+    const value = quoteList
+      .filter(
+        (q) => q.outcome === "Won" && (q.outcome_at || "").slice(0, 7) === period,
+      )
+      .reduce((n, q) => n + q.total, 0);
+    return { month: d.toLocaleDateString("en-OM", { month: "short" }), value: value / 1000 };
+  });
   const myOverdueInvoices = invoiceList.filter(isOverdue);
   const todoItems = [
     {
@@ -617,6 +656,7 @@ export default function Home() {
     setDraft({
       agent,
       companyId: lastQuote?.company_id || data.companies[0]?.id || "",
+      customerId: null,
       customer: "",
       email: "",
       notes: "",
@@ -788,6 +828,7 @@ export default function Home() {
           email: String(f.get("email") || "") || undefined,
           phone: String(f.get("phone") || "") || undefined,
           address: String(f.get("address") || "") || undefined,
+          vatNumber: String(f.get("vatNumber") || "") || undefined,
           stage: String(f.get("stage")),
           notes: String(f.get("notes") || ""),
           followUpAt: followUpAt || undefined,
@@ -1190,6 +1231,90 @@ export default function Home() {
             <section className="panel">
               <div className="section-head">
                 <h2 className="icon-heading">
+                  <PieChartIcon size={18} /> Quotation pipeline
+                </h2>
+              </div>
+              {outcomeChartData.length ? (
+                <>
+                  <ChartContainer
+                    config={{}}
+                    className="mx-auto aspect-square max-h-[220px]"
+                  >
+                    <PieChart>
+                      <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                      <Pie
+                        data={outcomeChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={55}
+                        outerRadius={85}
+                        strokeWidth={2}
+                      >
+                        {outcomeChartData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                  <div className="chart-legend">
+                    {outcomeChartData.map((entry) => (
+                      <span key={entry.name} className="chart-legend-item">
+                        <span
+                          className="chart-legend-dot"
+                          style={{ background: entry.fill }}
+                        />
+                        {entry.name} · {entry.value}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <Blank title="No quotations yet">
+                  Once you prepare quotations, their outcomes will show here.
+                </Blank>
+              )}
+            </section>
+            <section className="panel">
+              <div className="section-head">
+                <h2 className="icon-heading">
+                  <TrendingUp size={18} /> Won value · last 6 months
+                </h2>
+              </div>
+              {monthlyWonData.some((m) => m.value > 0) ? (
+                <div className="mini-bar-chart">
+                  {monthlyWonData.map((m) => {
+                    const max = Math.max(
+                      ...monthlyWonData.map((x) => x.value),
+                      1,
+                    );
+                    return (
+                      <div
+                        key={m.month}
+                        className="mini-bar-col"
+                        title={`${m.month}: OMR ${m.value.toFixed(3)}`}
+                      >
+                        <div className="mini-bar-track">
+                          <div
+                            className="mini-bar-fill"
+                            style={{ height: `${(m.value / max) * 100}%` }}
+                          />
+                        </div>
+                        <small>{m.month}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Blank title="No won quotations yet">
+                  Monthly won value will show here once you close deals.
+                </Blank>
+              )}
+            </section>
+          </div>
+          <div className="settings-grid">
+            <section className="panel">
+              <div className="section-head">
+                <h2 className="icon-heading">
                   <Target size={18} /> Sales goal ·{" "}
                   {new Date(currentPeriod + "-01").toLocaleDateString(
                     "en-OM",
@@ -1307,14 +1432,55 @@ export default function Home() {
                       />
                     </Field>
                     <Field label="Customer company name">
-                      <input
-                        value={draft.customer}
-                        onChange={(e) =>
-                          setDraft({ ...draft, customer: e.target.value })
-                        }
-                        placeholder="Customer company name"
-                        maxLength={200}
-                      />
+                      <div className="autocomplete">
+                        <input
+                          value={draft.customer}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              customer: e.target.value,
+                              customerId: null,
+                            })
+                          }
+                          onFocus={() => setCustomerSuggestOpen(true)}
+                          onBlur={() => setCustomerSuggestOpen(false)}
+                          placeholder="Start typing to find a saved customer"
+                          maxLength={200}
+                          autoComplete="off"
+                        />
+                        {customerSuggestOpen && customerMatches.length > 0 && (
+                          <div className="autocomplete-list">
+                            {customerMatches.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="autocomplete-item"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setDraft({
+                                    ...draft,
+                                    customer: c.company,
+                                    email: c.email || draft.email,
+                                    customerId: c.id,
+                                  });
+                                  setCustomerSuggestOpen(false);
+                                }}
+                              >
+                                <strong>{c.company}</strong>
+                                <small>
+                                  {c.contact_name}
+                                  {c.email ? " · " + c.email : ""}
+                                </small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {draft.customerId && (
+                        <small className="linked-customer">
+                          <Contact size={13} /> Linked to saved customer
+                        </small>
+                      )}
                     </Field>
                     <Field label="Customer email (optional)">
                       <input
@@ -1686,6 +1852,7 @@ export default function Home() {
                           revision: view.revision,
                           agent: view.agent,
                           companyId: view.company_id,
+                          customerId: view.customer_id,
                           customer: view.customer,
                           email: view.email,
                           notes: view.notes,
@@ -2277,6 +2444,11 @@ export default function Home() {
                   {viewCustomer.address && (
                     <p className="helper preserve-lines">
                       {viewCustomer.address}
+                    </p>
+                  )}
+                  {viewCustomer.vat_number && (
+                    <p className="helper">
+                      VAT reg. {viewCustomer.vat_number}
                     </p>
                   )}
                   {viewCustomer.notes && (
@@ -3910,14 +4082,23 @@ export default function Home() {
                 />
               </Field>
             </div>
-            <Field label="Address (optional)">
-              <textarea
-                name="address"
-                rows={2}
-                maxLength={2000}
-                defaultValue={editCustomer?.address ?? ""}
-              />
-            </Field>
+            <div className="form-grid">
+              <Field label="Address (optional)">
+                <textarea
+                  name="address"
+                  rows={2}
+                  maxLength={2000}
+                  defaultValue={editCustomer?.address ?? ""}
+                />
+              </Field>
+              <Field label="VAT registration number (optional)">
+                <input
+                  name="vatNumber"
+                  maxLength={50}
+                  defaultValue={editCustomer?.vat_number ?? ""}
+                />
+              </Field>
+            </div>
             <div className="form-grid">
               <Field label="Pipeline stage">
                 <select

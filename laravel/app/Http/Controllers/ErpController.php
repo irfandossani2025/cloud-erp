@@ -259,6 +259,7 @@ class ErpController extends Controller
         $q = $request->validate([
             'quote.id' => 'sometimes|uuid', 'quote.revision' => 'sometimes|integer|min:1',
             'quote.agent' => 'required|uuid', 'quote.customer' => 'required|string|max:200',
+            'quote.customerId' => 'nullable|uuid|exists:customers,id',
             'quote.companyId' => 'required|uuid|exists:companies,id',
             'quote.email' => 'nullable|email|max:254', 'quote.notes' => 'nullable|string|max:5000',
             'quote.rate' => 'required|numeric|gt:0|max:100', 'quote.lines' => 'required|array|min:1|max:200',
@@ -268,6 +269,10 @@ class ErpController extends Controller
             'quote.lines.*.branding' => 'nullable|string|max:1000',
         ])['quote'];
         $this->access->agent($request, $q['agent']);
+        if (!empty($q['customerId'])) {
+            $customer = DB::table('customers')->where('id', $q['customerId'])->first();
+            abort_unless($customer && $customer->agent === $q['agent'], 422, 'Select a customer from your own book.');
+        }
         $id = DB::transaction(function () use ($q, $request) {
             $saved = isset($q['id']) ? DB::table('quotes')->where('id', $q['id'])->lockForUpdate()->first() : null;
             if (isset($q['id'])) {
@@ -304,7 +309,7 @@ class ErpController extends Controller
             $pricingStatus = $unlocked ? 'Priced' : (($wasPriced && $anyUnpricedLine) ? 'Pending' : ($saved?->pricing_status ?? 'Pending'));
             $values = [
                 'customer' => $q['customer'], 'email' => $q['email'] ?? '', 'notes' => $q['notes'] ?? '',
-                'company_id' => $q['companyId'],
+                'company_id' => $q['companyId'], 'customer_id' => $q['customerId'] ?? null,
                 'lines' => json_encode($lines, JSON_THROW_ON_ERROR), 'total' => $total, 'updated' => now()->toIso8601String(),
                 'pricing_status' => $pricingStatus, 'price_unlocked_by_admin' => false,
             ];
@@ -356,6 +361,7 @@ class ErpController extends Controller
             'customer.email' => 'nullable|email|max:254',
             'customer.phone' => 'nullable|string|max:50',
             'customer.address' => 'nullable|string|max:2000',
+            'customer.vatNumber' => 'nullable|string|max:50',
             'customer.stage' => 'required|in:New Lead,Contacted,Qualified,Proposal Sent,Won,Lost',
             'customer.notes' => 'nullable|string|max:5000',
             'customer.followUpAt' => 'nullable|date',
@@ -364,6 +370,7 @@ class ErpController extends Controller
         $values = [
             'agent' => $v['agent'], 'company' => $v['company'], 'contact_name' => $v['contactName'],
             'email' => $v['email'] ?? null, 'phone' => $v['phone'] ?? null, 'address' => $v['address'] ?? null,
+            'vat_number' => $v['vatNumber'] ?? null,
             'stage' => $v['stage'], 'notes' => $v['notes'] ?? '', 'follow_up_at' => $v['followUpAt'] ?? null,
             'updated' => now()->toIso8601String(),
         ];
