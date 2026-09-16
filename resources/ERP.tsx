@@ -544,6 +544,34 @@ export default function Home() {
     data.deliveryNotes.some((n) => n.quote_id === quoteId);
   const hasInvoice = (quoteId: string) =>
     data.invoices.some((i) => i.quote_id === quoteId);
+  const customerQuotesFor = (c: Customer) =>
+    data.quotes.filter(
+      (q) =>
+        q.customer_id === c.id ||
+        (!q.customer_id &&
+          q.customer.trim().toLowerCase() === c.company.trim().toLowerCase()),
+    );
+  const customerOrders = viewCustomer
+    ? (() => {
+        const quotes = customerQuotesFor(viewCustomer).sort((a, b) =>
+          a.created < b.created ? 1 : -1,
+        );
+        const quoteIds = new Set(quotes.map((q) => q.id));
+        const deliveryNotes = data.deliveryNotes.filter((n) =>
+          quoteIds.has(n.quote_id),
+        );
+        const invoices = data.invoices.filter((i) => quoteIds.has(i.quote_id));
+        const wonQuotes = quotes.filter((q) => q.outcome === "Won");
+        return {
+          quotes,
+          deliveryNotes,
+          invoices,
+          wonCount: wonQuotes.length,
+          lifetimeValue: wonQuotes.reduce((sum, q) => sum + q.total, 0),
+          lastOrderAt: quotes[0]?.created ?? null,
+        };
+      })()
+    : null;
   const totalUnread = conversations.reduce((n, c) => n + c.unreadCount, 0);
   const activeConversationSummary = conversations.find(
     (c) => c.id === activeConversation,
@@ -2527,6 +2555,161 @@ export default function Home() {
                   disabled={!!busy}
                 />
               </div>
+              <div className="stat-grid">
+                <div className="stat-card">
+                  <span className="stat-label">Quotations</span>
+                  <strong className="stat-value">
+                    {customerOrders?.quotes.length ?? 0}
+                  </strong>
+                </div>
+                <div className="stat-card stat-card-won">
+                  <span className="stat-label">Won orders</span>
+                  <strong className="stat-value">
+                    {customerOrders?.wonCount ?? 0}
+                  </strong>
+                </div>
+                <div className="stat-card stat-card-won">
+                  <span className="stat-label">Lifetime value · OMR</span>
+                  <strong className="stat-value">
+                    {money(customerOrders?.lifetimeValue ?? 0)}
+                  </strong>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Last order</span>
+                  <strong className="stat-value">
+                    {customerOrders?.lastOrderAt
+                      ? new Date(
+                          customerOrders.lastOrderAt,
+                        ).toLocaleDateString("en-OM")
+                      : "—"}
+                  </strong>
+                </div>
+              </div>
+              <div className="section-head">
+                <div>
+                  <h2>Order history</h2>
+                  <p className="helper">
+                    Every quotation, delivery note and invoice linked to this
+                    company, so you can see what they've ordered before.
+                  </p>
+                </div>
+                {(customerOrders?.quotes.length ?? 0) >= 2 && (
+                  <span className="badge badge-won">Repeat customer</span>
+                )}
+              </div>
+              {customerOrders && customerOrders.quotes.length ? (
+                <Table className="responsive-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Quotation</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Total · OMR</TableHead>
+                      <TableHead>Delivery</TableHead>
+                      <TableHead>Invoice</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {customerOrders.quotes.map((q) => {
+                      const dn = customerOrders.deliveryNotes.find(
+                        (n) => n.quote_id === q.id,
+                      );
+                      const inv = customerOrders.invoices.find(
+                        (i) => i.quote_id === q.id,
+                      );
+                      return (
+                        <TableRow key={q.id}>
+                          <TableCell className="card-title">
+                            <button
+                              className="text-button"
+                              onClick={() => {
+                                setView(q);
+                                setTab("quotations");
+                              }}
+                            >
+                              Q-{String(q.number).padStart(4, "0")}
+                            </button>
+                          </TableCell>
+                          <TableCell data-label="Date">
+                            {new Date(q.created).toLocaleDateString("en-OM")}
+                          </TableCell>
+                          <TableCell data-label="Status">
+                            <span className="badge">{q.status}</span>
+                            {q.outcome && (
+                              <span
+                                className={
+                                  "badge" +
+                                  (q.outcome === "Won"
+                                    ? " badge-won"
+                                    : q.outcome === "Lost"
+                                      ? " badge-lost"
+                                      : " badge-onhold")
+                                }
+                              >
+                                {q.outcome === "OnHold"
+                                  ? "On hold"
+                                  : q.outcome}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell data-label="Total · OMR">
+                            <strong>
+                              {q.pricing_status === "Priced"
+                                ? money(q.total)
+                                : "—"}
+                            </strong>
+                          </TableCell>
+                          <TableCell data-label="Delivery">
+                            {dn ? (
+                              <div className="actions">
+                                <span className="badge">{dn.status}</span>
+                                <button
+                                  className="text-button"
+                                  onClick={() => {
+                                    setViewDeliveryNote(dn);
+                                    setTab("documents");
+                                  }}
+                                >
+                                  Open
+                                </button>
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </TableCell>
+                          <TableCell data-label="Invoice">
+                            {inv ? (
+                              <div className="actions">
+                                <span className="badge">
+                                  {inv.status === "Paid"
+                                    ? `Paid ${inv.paid_at ? new Date(inv.paid_at).toLocaleDateString("en-OM") : ""}`
+                                    : inv.status}
+                                </span>
+                                <button
+                                  className="text-button"
+                                  onClick={() => {
+                                    setViewInvoice(inv);
+                                    setTab("documents");
+                                  }}
+                                >
+                                  Open
+                                </button>
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Blank title="No orders yet">
+                  Quotations linked to this customer will appear here, along
+                  with their delivery notes and invoices.
+                </Blank>
+              )}
               <div className="section-head">
                 <h2>Activity</h2>
               </div>
@@ -2627,6 +2810,7 @@ export default function Home() {
                       <TableHead>Company</TableHead>
                       <TableHead>Contact</TableHead>
                       <TableHead>Stage</TableHead>
+                      <TableHead>Orders</TableHead>
                       <TableHead>Follow-up</TableHead>
                       <TableHead>
                         <span className="sr-only">Open</span>
@@ -2634,7 +2818,9 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {customerList.map((c) => (
+                    {customerList.map((c) => {
+                      const orderCount = customerQuotesFor(c).length;
+                      return (
                       <TableRow key={c.id}>
                         <TableCell className="card-title">
                           <strong>{c.company}</strong>
@@ -2644,6 +2830,12 @@ export default function Home() {
                         </TableCell>
                         <TableCell data-label="Stage">
                           <span className="badge">{c.stage}</span>
+                        </TableCell>
+                        <TableCell data-label="Orders">
+                          {orderCount || "—"}
+                          {orderCount >= 2 && (
+                            <span className="badge badge-won">Repeat</span>
+                          )}
                         </TableCell>
                         <TableCell data-label="Follow-up">
                           {c.follow_up_at
@@ -2661,7 +2853,8 @@ export default function Home() {
                           </button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               ) : (
