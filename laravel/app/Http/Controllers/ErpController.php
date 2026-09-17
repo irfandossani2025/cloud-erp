@@ -89,7 +89,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_unlock_price,status,quote_outcome,customer,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_unlock_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -174,6 +174,15 @@ class ErpController extends Controller
             $v = $request->validate(['id' => 'required|uuid|exists:quotes,id']);
             DB::table('quotes')->where('id', $v['id'])->update(['price_unlocked_by_admin' => true, 'updated' => now()->toIso8601String()]);
         }
+        if ($action === 'quote_delete') {
+            $this->access->admin($request);
+            $v = $request->validate(['id' => 'required|uuid|exists:quotes,id']);
+            DB::transaction(function () use ($v) {
+                DB::table('invoices')->where('quote_id', $v['id'])->delete();
+                DB::table('delivery_notes')->where('quote_id', $v['id'])->delete();
+                DB::table('quotes')->where('id', $v['id'])->delete();
+            });
+        }
         if ($action === 'status') {
             $v = $request->validate(['id' => 'required|uuid|exists:quotes,id', 'revision' => 'required|integer|min:1', 'status' => 'required|in:Draft,Reviewed,Accepted,Declined']);
             $q = DB::table('quotes')->where('id', $v['id'])->first();
@@ -199,6 +208,14 @@ class ErpController extends Controller
             ]);
         }
         if ($action === 'customer') return $this->customer($request);
+        if ($action === 'customer_delete') {
+            $this->access->admin($request);
+            $v = $request->validate(['id' => 'required|uuid|exists:customers,id']);
+            DB::transaction(function () use ($v) {
+                DB::table('customer_activities')->where('customer_id', $v['id'])->delete();
+                DB::table('customers')->where('id', $v['id'])->delete();
+            });
+        }
         if ($action === 'customer_activity') return $this->customerActivity($request);
         if ($action === 'delivery_note') return $this->deliveryNote($request);
         if ($action === 'delivery_note_status') {
@@ -236,6 +253,11 @@ class ErpController extends Controller
             $inv = DB::table('invoices')->where('id', $v['id'])->first();
             $this->access->agent($request, $inv->agent);
             DB::table('invoices')->where('id', $v['id'])->update(['status' => $v['status'], 'updated' => now()->toIso8601String()]);
+        }
+        if ($action === 'invoice_delete') {
+            $this->access->admin($request);
+            $v = $request->validate(['id' => 'required|uuid|exists:invoices,id']);
+            DB::table('invoices')->where('id', $v['id'])->delete();
         }
         if ($action === 'invoice_payment') {
             $this->access->accounts($request);

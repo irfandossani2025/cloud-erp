@@ -160,6 +160,13 @@ svg {
   border-color: var(--border);
   color: #254263;
 }
+.danger {
+  color: #a32d3e;
+  border-color: #f0c4c4;
+}
+.danger:hover:not(:disabled) {
+  background: #fdf4f4;
+}
 .nav-wrap {
   position: relative;
   border-bottom: 1px solid var(--border);

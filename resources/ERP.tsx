@@ -2027,6 +2027,28 @@ export default function Home() {
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
+                  {data.isAdmin && (
+                    <button
+                      className="secondary danger"
+                      disabled={!!busy}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Delete quotation Q-${String(view.number).padStart(4, "0")}? This also deletes its delivery note and invoice, if any. This cannot be undone.`,
+                          )
+                        )
+                          return;
+                        void perform("quote-delete", async () => {
+                          await api("quote_delete", { id: view.id });
+                          await refresh();
+                          setView(null);
+                          toast.success("Quotation deleted");
+                        });
+                      }}
+                    >
+                      <Trash2 size={16} /> Delete
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="pipeline no-print">
@@ -2496,15 +2518,39 @@ export default function Home() {
                 >
                   <ArrowLeft size={16} /> All customers
                 </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setEditCustomer(viewCustomer);
-                    setCustomerDialog(true);
-                  }}
-                >
-                  Edit details
-                </button>
+                <div className="actions">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setEditCustomer(viewCustomer);
+                      setCustomerDialog(true);
+                    }}
+                  >
+                    Edit details
+                  </button>
+                  {data.isAdmin && (
+                    <button
+                      className="secondary danger"
+                      disabled={!!busy}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Delete ${viewCustomer.company}? Their quotations will be kept but unlinked from this CRM record. This cannot be undone.`,
+                          )
+                        )
+                          return;
+                        void perform("customer-delete", async () => {
+                          await api("customer_delete", { id: viewCustomer.id });
+                          await refresh();
+                          setViewCustomer(null);
+                          toast.success("Customer deleted");
+                        });
+                      }}
+                    >
+                      <Trash2 size={16} /> Delete
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="customer-detail">
                 <div>
@@ -3058,6 +3104,28 @@ export default function Home() {
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
+                  {data.isAdmin && (
+                    <button
+                      className="secondary danger"
+                      disabled={!!busy}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Delete invoice INV-${String(viewInvoice.number).padStart(4, "0")}? This cannot be undone.`,
+                          )
+                        )
+                          return;
+                        void perform("invoice-delete", async () => {
+                          await api("invoice_delete", { id: viewInvoice.id });
+                          await refresh();
+                          setViewInvoice(null);
+                          toast.success("Invoice deleted");
+                        });
+                      }}
+                    >
+                      <Trash2 size={16} /> Delete
+                    </button>
+                  )}
                 </div>
               </div>
               <form

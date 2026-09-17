@@ -947,4 +947,128 @@ class ErpWorkflowTest extends TestCase
         $adminView = $this->actingAs($admin)->getJson('/api/erp')->json();
         $this->assertCount(2, $adminView['salesGoals']);
     }
+
+    public function test_admin_can_delete_a_quotation_along_with_its_delivery_note_and_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        [$admin] = $this->makeAgent('Admin User', true);
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice',
+            'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'quote_delete', 'id' => $quoteId,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('quotes', ['id' => $quoteId]);
+        $this->assertDatabaseMissing('delivery_notes', ['id' => $dnId]);
+        $this->assertDatabaseMissing('invoices', ['id' => $invId]);
+    }
+
+    public function test_a_regular_agent_cannot_delete_a_quotation(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote_delete', 'id' => $quoteId,
+        ])->assertForbidden();
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId]);
+    }
+
+    public function test_admin_can_delete_an_invoice_without_touching_its_quotation(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        [$admin] = $this->makeAgent('Admin User', true);
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice',
+            'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'invoice_delete', 'id' => $invId,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('invoices', ['id' => $invId]);
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId]);
+    }
+
+    public function test_a_regular_agent_cannot_delete_an_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice',
+            'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice_delete', 'id' => $invId,
+        ])->assertForbidden();
+        $this->assertDatabaseHas('invoices', ['id' => $invId]);
+    }
+
+    public function test_admin_can_delete_a_customer_and_their_quotations_are_kept_but_unlinked(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        [$admin] = $this->makeAgent('Admin User', true);
+        $customerId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe', 'stage' => 'New Lead'],
+        ])->json('id');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme LLC',
+                'customerId' => $customerId, 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1]],
+            ],
+        ])->json('id');
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer_activity',
+            'activity' => ['customerId' => $customerId, 'type' => 'note', 'notes' => 'Called about pricing'],
+        ])->assertOk();
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'customer_delete', 'id' => $customerId,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('customers', ['id' => $customerId]);
+        $this->assertDatabaseMissing('customer_activities', ['customer_id' => $customerId]);
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'customer_id' => null]);
+    }
+
+    public function test_a_regular_agent_cannot_delete_a_customer(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $customerId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe', 'stage' => 'New Lead'],
+        ])->json('id');
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer_delete', 'id' => $customerId,
+        ])->assertForbidden();
+        $this->assertDatabaseHas('customers', ['id' => $customerId]);
+    }
 }
