@@ -238,6 +238,7 @@ export async function POST(request: Request) {
         const old = previous.find((x) => x.productId === l.productId);
         return {
           ...l,
+          id: old?.id ?? crypto.randomUUID(),
           name: old?.name ?? p.name,
           sku: old?.sku ?? p.sku,
           costBaisa: old?.costBaisa ?? convertedCost(p, rate),

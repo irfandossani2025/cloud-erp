@@ -33,6 +33,7 @@ export type Company = {
   logo_path: string;
 };
 export type Line = {
+  id: string;
   productId: string;
   name: string;
   sku: string;

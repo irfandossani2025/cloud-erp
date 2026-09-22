@@ -235,6 +235,44 @@ class ErpWorkflowTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_a_sku_is_auto_generated_when_left_blank(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $r = $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Mystery Mug', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->assertOk();
+        $this->assertNotEmpty($r->json('sku'));
+        $this->assertDatabaseHas('products', ['id' => $r->json('id'), 'sku' => $r->json('sku')]);
+    }
+
+    public function test_two_products_saved_with_no_sku_get_different_auto_generated_skus(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $a = $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Mug A', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->json('sku');
+        $b = $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Mug B', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->json('sku');
+        $this->assertNotSame($a, $b);
+    }
+
+    public function test_an_explicit_sku_is_kept_and_duplicates_are_rejected(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Mug', 'sku' => 'MUG-1', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->assertOk()->assertJson(['sku' => 'MUG-1']);
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'product',
+            'product' => ['name' => 'Another Mug', 'sku' => 'MUG-1', 'warehouseStock' => 0, 'costBaisa' => 100],
+        ])->assertUnprocessable();
+    }
+
     public function test_non_admin_cannot_sync_supplier_or_change_settings(): void
     {
         [$agent] = $this->makeAgent('Agent One');
@@ -1070,5 +1108,79 @@ class ErpWorkflowTest extends TestCase
             'action' => 'customer_delete', 'id' => $customerId,
         ])->assertForbidden();
         $this->assertDatabaseHas('customers', ['id' => $customerId]);
+    }
+
+    public function test_a_product_can_be_added_twice_to_a_quote_and_priced_independently(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [
+                    ['id' => 'line-1', 'productId' => $productId, 'quantity' => 2],
+                    ['id' => 'line-2', 'productId' => $productId, 'quantity' => 3],
+                ],
+            ],
+        ])->assertOk()->json('id');
+
+        $stored = json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true);
+        $this->assertCount(2, $stored);
+
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [
+                ['id' => 'line-1', 'productId' => $productId, 'unitBaisa' => 1000],
+                ['id' => 'line-2', 'productId' => $productId, 'unitBaisa' => 2000],
+            ]],
+        ])->assertOk();
+
+        $lines = collect(json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true))->keyBy('id');
+        $this->assertSame(1000, $lines['line-1']['unitBaisa']);
+        $this->assertSame(2000, $lines['line-2']['unitBaisa']);
+        // total = 2*1000 + 3*2000 = 8000
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'total' => 8000, 'pricing_status' => 'Priced']);
+    }
+
+    public function test_editing_one_duplicate_product_line_does_not_disturb_the_others_price(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [
+                    ['id' => 'line-1', 'productId' => $productId, 'quantity' => 2],
+                    ['id' => 'line-2', 'productId' => $productId, 'quantity' => 3],
+                ],
+            ],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [
+                ['id' => 'line-1', 'productId' => $productId, 'unitBaisa' => 1000],
+                ['id' => 'line-2', 'productId' => $productId, 'unitBaisa' => 2000],
+            ]],
+        ])->assertOk();
+
+        // Agent bumps the quantity on line-1 only; both lines keep their own price.
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'id' => $quoteId, 'revision' => 2, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [
+                    ['id' => 'line-1', 'productId' => $productId, 'quantity' => 5],
+                    ['id' => 'line-2', 'productId' => $productId, 'quantity' => 3],
+                ],
+            ],
+        ])->assertOk();
+
+        $lines = collect(json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true))->keyBy('id');
+        $this->assertSame(5, $lines['line-1']['quantity']);
+        $this->assertSame(1000, $lines['line-1']['unitBaisa']);
+        $this->assertSame(2000, $lines['line-2']['unitBaisa']);
+        $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'pricing_status' => 'Priced']);
     }
 }

@@ -332,21 +332,12 @@ export default function Home() {
   function addProduct(p: Product, quantity = 1, branding = "") {
     setDraft((d) => {
       if (!d) return d;
-      const i = d.lines.findIndex(
-        (l) => l.productId === p.id && l.branding === branding,
-      );
-      if (i >= 0)
-        return {
-          ...d,
-          lines: d.lines.map((l, j) =>
-            j === i ? { ...l, quantity: l.quantity + quantity } : l,
-          ),
-        };
       return {
         ...d,
         lines: [
           ...d.lines,
           {
+            id: crypto.randomUUID(),
             productId: p.id,
             name: p.name,
             sku: p.sku,

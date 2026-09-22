@@ -213,6 +213,15 @@ async function api(action: string, payload: object = {}) {
   if (!r.ok) throw new Error(data.error || "Request failed");
   return data;
 }
+function withLineIds(d: State): State {
+  return {
+    ...d,
+    quotes: d.quotes.map((q) => ({
+      ...q,
+      lines: q.lines.map((l) => (l.id ? l : { ...l, id: crypto.randomUUID() })),
+    })),
+  };
+}
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="field">
@@ -352,13 +361,14 @@ export default function Home() {
   const refresh = useCallback(async () => {
     try {
       const r = await request("/api/erp");
-      const d = (await r.json()) as State & { error?: string };
-      if (!r.ok) throw new Error(d.error || "Could not load the workspace");
+      const raw = (await r.json()) as State & { error?: string };
+      if (!r.ok) throw new Error(raw.error || "Could not load the workspace");
+      const d = withLineIds(raw);
       setData(d);
       setAgent((a) => a || d.agents[0]?.id || "");
       setLoadError("");
       setLoaded(true);
-      return d as State;
+      return d;
     } catch (e) {
       setLoadError(
         e instanceof Error ? e.message : "Could not load the workspace",
@@ -372,7 +382,7 @@ export default function Home() {
       .then(async (r) => {
         const d = (await r.json()) as State & { error?: string };
         if (!r.ok) throw new Error(d.error || "Could not load the workspace");
-        return d;
+        return withLineIds(d);
       })
       .then((d) => {
         setData(d);
@@ -731,21 +741,12 @@ export default function Home() {
   function addProduct(p: Product, quantity = 1, branding = "") {
     setDraft((d) => {
       if (!d) return d;
-      const i = d.lines.findIndex(
-        (l) => l.productId === p.id && l.branding === branding,
-      );
-      if (i >= 0)
-        return {
-          ...d,
-          lines: d.lines.map((l, j) =>
-            j === i ? { ...l, quantity: l.quantity + quantity } : l,
-          ),
-        };
       return {
         ...d,
         lines: [
           ...d.lines,
           {
+            id: crypto.randomUUID(),
             productId: p.id,
             name: p.name,
             sku: p.sku,
@@ -787,7 +788,7 @@ export default function Home() {
         const r = await api("product", {
           product: {
             name: String(f.get("name")),
-            sku: String(f.get("sku")),
+            sku: String(f.get("sku") || "").trim() || undefined,
             description: String(f.get("description")),
             category: String(f.get("category")),
             warehouseStock: Number(f.get("warehouse")),
@@ -940,7 +941,7 @@ export default function Home() {
   function openPricing(q: Quote) {
     setPricingQuote(q);
     setPricingLines(
-      Object.fromEntries(q.lines.map((l) => [l.productId, l.unitBaisa])),
+      Object.fromEntries(q.lines.map((l) => [l.id, l.unitBaisa])),
     );
   }
   async function submitPricing(e: FormEvent<HTMLFormElement>) {
@@ -951,8 +952,9 @@ export default function Home() {
         quote: {
           id: pricingQuote.id,
           lines: pricingQuote.lines.map((l) => ({
+            id: l.id,
             productId: l.productId,
-            unitBaisa: pricingLines[l.productId] ?? 0,
+            unitBaisa: pricingLines[l.id] ?? 0,
           })),
         },
       });
@@ -1613,7 +1615,7 @@ export default function Home() {
                           (p) => p.id === l.productId,
                         );
                         return (
-                          <article className="quote-line" key={i}>
+                          <article className="quote-line" key={l.id}>
                             <div className="section-head">
                               <div className="product-cell">
                                 {p && <ProductPhoto product={p} />}
@@ -1633,7 +1635,7 @@ export default function Home() {
                                   setDraft({
                                     ...draft,
                                     lines: draft.lines.filter(
-                                      (_, j) => i !== j,
+                                      (x) => x.id !== l.id,
                                     ),
                                   })
                                 }
@@ -4275,8 +4277,8 @@ export default function Home() {
                   <Field label="Product name">
                     <input name="name" required maxLength={200} />
                   </Field>
-                  <Field label="SKU">
-                    <input name="sku" required maxLength={200} />
+                  <Field label="SKU (optional — auto-generated if left blank)">
+                    <input name="sku" maxLength={200} placeholder="Auto-generated" />
                   </Field>
                 </div>
                 <Field label="Description">
@@ -4527,7 +4529,7 @@ export default function Home() {
           {pricingQuote && (
             <form className="pricing-form" onSubmit={submitPricing}>
               {pricingQuote.lines.map((l) => (
-                <div className="pricing-line" key={l.productId}>
+                <div className="pricing-line" key={l.id}>
                   <div>
                     <strong>{l.name}</strong>
                     <small>
@@ -4541,11 +4543,11 @@ export default function Home() {
                       min="0"
                       max="1000000"
                       step="0.001"
-                      value={(pricingLines[l.productId] ?? 0) / 1000}
+                      value={(pricingLines[l.id] ?? 0) / 1000}
                       onChange={(e) =>
                         setPricingLines((lines) => ({
                           ...lines,
-                          [l.productId]: Math.round(
+                          [l.id]: Math.round(
                             Number(e.target.value) * 1000,
                           ),
                         }))
@@ -4555,7 +4557,7 @@ export default function Home() {
                   <div className="line-total">
                     <small>Line total · OMR</small>
                     <strong>
-                      {money(l.quantity * (pricingLines[l.productId] ?? 0))}
+                      {money(l.quantity * (pricingLines[l.id] ?? 0))}
                     </strong>
                   </div>
                 </div>
@@ -4567,7 +4569,7 @@ export default function Home() {
                     {money(
                       pricingQuote.lines.reduce(
                         (n, l) =>
-                          n + l.quantity * (pricingLines[l.productId] ?? 0),
+                          n + l.quantity * (pricingLines[l.id] ?? 0),
                         0,
                       ),
                     )}

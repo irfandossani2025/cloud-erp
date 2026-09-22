@@ -95,7 +95,7 @@ class ErpController extends Controller
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
         if ($action === 'product') {
             $v = $request->validate([
-                'product.name' => 'required|string|max:200', 'product.sku' => 'required|string|max:191|unique:products,sku',
+                'product.name' => 'required|string|max:200', 'product.sku' => 'nullable|string|max:191|unique:products,sku',
                 'product.description' => 'nullable|string|max:5000', 'product.category' => 'nullable|string|max:1000',
                 'product.image' => 'nullable|url:https|max:2000', 'product.warehouseStock' => 'required|integer|min:0|max:1000000',
                 'product.saleBaisa' => 'nullable|integer|min:0|max:1000000000', 'product.costBaisa' => 'required|integer|min:0|max:1000000000',
@@ -103,8 +103,9 @@ class ErpController extends Controller
             abort_if(!$request->user()->is_admin && $v['warehouseStock'] !== 0, 403, 'Only an administrator can set warehouse quantities.');
             abort_if(!$request->user()->is_admin && $v['costBaisa'] !== 0, 403, 'Only an administrator can set product cost.');
             $id = (string) Str::uuid();
-            DB::table('products')->insert(['id' => $id, 'name' => $v['name'], 'sku' => $v['sku'], 'description' => $v['description'] ?? '', 'category' => $v['category'] ?? '', 'image' => $v['image'] ?? '', 'warehouse_stock' => $v['warehouseStock'], 'sale_baisa' => $v['saleBaisa'] ?? null, 'cost_baisa' => $v['costBaisa']]);
-            return response()->json(['id' => $id]);
+            $sku = ($v['sku'] ?? null) ?: $this->generateSku();
+            DB::table('products')->insert(['id' => $id, 'name' => $v['name'], 'sku' => $sku, 'description' => $v['description'] ?? '', 'category' => $v['category'] ?? '', 'image' => $v['image'] ?? '', 'warehouse_stock' => $v['warehouseStock'], 'sale_baisa' => $v['saleBaisa'] ?? null, 'cost_baisa' => $v['costBaisa']]);
+            return response()->json(['id' => $id, 'sku' => $sku]);
         }
         if ($action === 'stock') {
             $v = $request->validate(['id' => 'required|uuid|exists:products,id', 'warehouseStock' => 'required|integer|min:0|max:1000000', 'saleBaisa' => 'nullable|integer|min:0|max:1000000000']);
@@ -285,6 +286,7 @@ class ErpController extends Controller
             'quote.companyId' => 'required|uuid|exists:companies,id',
             'quote.email' => 'nullable|email|max:254', 'quote.notes' => 'nullable|string|max:5000',
             'quote.rate' => 'required|numeric|gt:0|max:100', 'quote.lines' => 'required|array|min:1|max:200',
+            'quote.lines.*.id' => 'nullable|string|max:64',
             'quote.lines.*.productId' => 'required|uuid|exists:products,id',
             'quote.lines.*.quantity' => 'required|integer|min:1|max:1000000',
             'quote.lines.*.unitBaisa' => 'sometimes|integer|min:0|max:1000000000',
@@ -303,7 +305,14 @@ class ErpController extends Controller
                 abort_unless($saved->agent === $q['agent'] && $saved->status === 'Draft' && $saved->revision === ($q['revision'] ?? 0), 409, 'Quotation changed or is no longer a draft. Reopen it before editing.');
             }
             $rate = (float) ($saved->rate ?? $q['rate']);
-            $old = collect($saved ? json_decode($saved->lines, true) : [])->keyBy('productId');
+            $savedLines = $saved ? json_decode($saved->lines, true) : [];
+            // Each line carries a stable client-generated id so a product can
+            // appear on a quote more than once; older quotes saved before that
+            // existed have no ids, so we fall back to matching by productId
+            // (ambiguous only if such a legacy quote already had a duplicate,
+            // which the app never allowed before this feature).
+            $oldById = collect($savedLines)->filter(fn ($l) => !empty($l['id']))->keyBy('id');
+            $oldByProduct = collect($savedLines)->keyBy('productId');
             $products = DB::table('products')->whereIn('id', array_column($q['lines'], 'productId'))->get()->keyBy('id');
             // Prices are set by the Pricing role, not the agent: a brand-new or
             // still-pending quote always prices its lines at zero, a previously
@@ -314,7 +323,8 @@ class ErpController extends Controller
             $anyUnpricedLine = false;
             $lines = []; $total = 0;
             foreach ($q['lines'] as $l) {
-                $p = $products[$l['productId']]; $previous = $old->get($l['productId']);
+                $p = $products[$l['productId']];
+                $previous = (!empty($l['id']) ? $oldById->get($l['id']) : null) ?? $oldByProduct->get($l['productId']);
                 if ($unlocked) {
                     $unitBaisa = (int) ($l['unitBaisa'] ?? $previous['unitBaisa'] ?? 0);
                 } elseif ($wasPriced && $previous) {
@@ -323,7 +333,7 @@ class ErpController extends Controller
                     $unitBaisa = 0;
                     if ($wasPriced) $anyUnpricedLine = true;
                 }
-                $line = ['productId' => $p->id, 'name' => $previous['name'] ?? $p->name, 'sku' => $previous['sku'] ?? $p->sku, 'quantity' => (int) $l['quantity'], 'unitBaisa' => $unitBaisa, 'branding' => $l['branding'] ?? '', 'costBaisa' => $previous['costBaisa'] ?? ($p->supplier_aed === null ? $p->cost_baisa : (int) round($p->supplier_aed * $rate * 10))];
+                $line = ['id' => $l['id'] ?? (string) Str::uuid(), 'productId' => $p->id, 'name' => $previous['name'] ?? $p->name, 'sku' => $previous['sku'] ?? $p->sku, 'quantity' => (int) $l['quantity'], 'unitBaisa' => $unitBaisa, 'branding' => $l['branding'] ?? '', 'costBaisa' => $previous['costBaisa'] ?? ($p->supplier_aed === null ? $p->cost_baisa : (int) round($p->supplier_aed * $rate * 10))];
                 $total += $line['quantity'] * $line['unitBaisa']; $lines[] = $line;
             }
             abort_if($total > 1000000000000, 422, 'Quotation total exceeds the supported range.');
@@ -348,6 +358,7 @@ class ErpController extends Controller
         $v = $request->validate([
             'quote.id' => 'required|uuid|exists:quotes,id',
             'quote.lines' => 'required|array|min:1',
+            'quote.lines.*.id' => 'nullable|string|max:64',
             'quote.lines.*.productId' => 'required|uuid',
             'quote.lines.*.unitBaisa' => 'required|integer|min:0|max:1000000000',
         ])['quote'];
@@ -355,9 +366,11 @@ class ErpController extends Controller
             $saved = DB::table('quotes')->where('id', $v['id'])->lockForUpdate()->first();
             abort_unless($saved, 404, 'Quotation not found.');
             abort_unless($saved->status === 'Draft', 422, 'Only a draft quotation can be priced.');
-            $prices = collect($v['lines'])->keyBy('productId');
-            $lines = collect(json_decode($saved->lines, true))->map(function ($l) use ($prices) {
-                $l['unitBaisa'] = (int) ($prices->get($l['productId'])['unitBaisa'] ?? $l['unitBaisa']);
+            $pricesById = collect($v['lines'])->filter(fn ($l) => !empty($l['id']))->keyBy('id');
+            $pricesByProduct = collect($v['lines'])->keyBy('productId');
+            $lines = collect(json_decode($saved->lines, true))->map(function ($l) use ($pricesById, $pricesByProduct) {
+                $match = (!empty($l['id']) ? $pricesById->get($l['id']) : null) ?? $pricesByProduct->get($l['productId']);
+                $l['unitBaisa'] = (int) ($match['unitBaisa'] ?? $l['unitBaisa']);
                 return $l;
             })->all();
             $total = array_sum(array_map(fn ($l) => $l['quantity'] * $l['unitBaisa'], $lines));
@@ -484,5 +497,14 @@ class ErpController extends Controller
             'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
         ]);
         return $id;
+    }
+
+    private function generateSku(): string
+    {
+        do {
+            $sku = 'SKU-'.strtoupper(Str::random(6));
+        } while (DB::table('products')->where('sku', $sku)->exists());
+
+        return $sku;
     }
 }
