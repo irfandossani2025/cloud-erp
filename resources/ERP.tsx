@@ -218,7 +218,11 @@ function withLineIds(d: State): State {
     ...d,
     quotes: d.quotes.map((q) => ({
       ...q,
-      lines: q.lines.map((l) => (l.id ? l : { ...l, id: crypto.randomUUID() })),
+      lines: q.lines.map((l) => ({
+        ...l,
+        id: l.id || crypto.randomUUID(),
+        description: l.description ?? "",
+      })),
     })),
   };
 }
@@ -749,6 +753,7 @@ export default function Home() {
             id: crypto.randomUUID(),
             productId: p.id,
             name: p.name,
+            description: p.description || "",
             sku: p.sku,
             quantity,
             branding,
@@ -1699,6 +1704,19 @@ export default function Home() {
                                 </strong>
                               </div>
                             </div>
+                            <Field label="Description (shown on the quotation)">
+                              <textarea
+                                value={l.description}
+                                onChange={(e) =>
+                                  updateLine(i, {
+                                    description: e.target.value,
+                                  })
+                                }
+                                placeholder="Describe what's being quoted, even for a preloaded supplier product"
+                                rows={2}
+                                maxLength={2000}
+                              />
+                            </Field>
                             <Field label="Branding / printing requirements">
                               <input
                                 value={l.branding}
@@ -2178,6 +2196,11 @@ export default function Home() {
                               <div>
                                 <strong>{l.name}</strong>
                                 <small>{l.sku}</small>
+                                {l.description && (
+                                  <small className="preserve-lines">
+                                    {l.description}
+                                  </small>
+                                )}
                                 {l.branding && <small>{l.branding}</small>}
                               </div>
                             </div>
@@ -3048,6 +3071,11 @@ export default function Home() {
                         <TableCell className="card-title">
                           <strong>{l.name}</strong>
                           <small>{l.sku}</small>
+                          {l.description && (
+                            <small className="preserve-lines">
+                              {l.description}
+                            </small>
+                          )}
                         </TableCell>
                         <TableCell data-label="Quantity">
                           {l.quantity}
@@ -3239,6 +3267,11 @@ export default function Home() {
                         <TableCell className="card-title">
                           <strong>{l.name}</strong>
                           <small>{l.sku}</small>
+                          {l.description && (
+                            <small className="preserve-lines">
+                              {l.description}
+                            </small>
+                          )}
                         </TableCell>
                         <TableCell data-label="Quantity" className="num">
                           {l.quantity}

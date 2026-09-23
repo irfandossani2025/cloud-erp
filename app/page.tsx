@@ -340,6 +340,7 @@ export default function Home() {
             id: crypto.randomUUID(),
             productId: p.id,
             name: p.name,
+            description: p.description || "",
             sku: p.sku,
             quantity,
             branding,

@@ -291,6 +291,7 @@ class ErpController extends Controller
             'quote.lines.*.quantity' => 'required|integer|min:1|max:1000000',
             'quote.lines.*.unitBaisa' => 'sometimes|integer|min:0|max:1000000000',
             'quote.lines.*.branding' => 'nullable|string|max:1000',
+            'quote.lines.*.description' => 'nullable|string|max:2000',
         ])['quote'];
         $this->access->agent($request, $q['agent']);
         if (!empty($q['customerId'])) {
@@ -333,7 +334,7 @@ class ErpController extends Controller
                     $unitBaisa = 0;
                     if ($wasPriced) $anyUnpricedLine = true;
                 }
-                $line = ['id' => $l['id'] ?? (string) Str::uuid(), 'productId' => $p->id, 'name' => $previous['name'] ?? $p->name, 'sku' => $previous['sku'] ?? $p->sku, 'quantity' => (int) $l['quantity'], 'unitBaisa' => $unitBaisa, 'branding' => $l['branding'] ?? '', 'costBaisa' => $previous['costBaisa'] ?? ($p->supplier_aed === null ? $p->cost_baisa : (int) round($p->supplier_aed * $rate * 10))];
+                $line = ['id' => $l['id'] ?? (string) Str::uuid(), 'productId' => $p->id, 'name' => $previous['name'] ?? $p->name, 'sku' => $previous['sku'] ?? $p->sku, 'quantity' => (int) $l['quantity'], 'unitBaisa' => $unitBaisa, 'branding' => $l['branding'] ?? '', 'description' => $l['description'] ?? ($previous['description'] ?? $p->description ?? ''), 'costBaisa' => $previous['costBaisa'] ?? ($p->supplier_aed === null ? $p->cost_baisa : (int) round($p->supplier_aed * $rate * 10))];
                 $total += $line['quantity'] * $line['unitBaisa']; $lines[] = $line;
             }
             abort_if($total > 1000000000000, 422, 'Quotation total exceeds the supported range.');
@@ -449,7 +450,7 @@ class ErpController extends Controller
         $this->access->agent($request, $quote->agent);
         abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can have a delivery note.');
         $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
-            'productId' => $l['productId'], 'name' => $l['name'], 'sku' => $l['sku'], 'quantity' => $l['quantity'],
+            'productId' => $l['productId'], 'name' => $l['name'], 'description' => $l['description'] ?? '', 'sku' => $l['sku'], 'quantity' => $l['quantity'],
         ])->all();
         $id = (string) Str::uuid();
         DB::table('delivery_notes')->insert([
@@ -480,7 +481,7 @@ class ErpController extends Controller
     private function generateInvoice(object $quote, ?string $dueDate = null, string $notes = ''): string
     {
         $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
-            'productId' => $l['productId'], 'name' => $l['name'], 'sku' => $l['sku'],
+            'productId' => $l['productId'], 'name' => $l['name'], 'description' => $l['description'] ?? '', 'sku' => $l['sku'],
             'quantity' => $l['quantity'], 'unitBaisa' => $l['unitBaisa'],
         ])->all();
         $subtotal = $quote->total;

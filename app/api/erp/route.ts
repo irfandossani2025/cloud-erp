@@ -209,6 +209,7 @@ export async function POST(request: Request) {
                 quantity: z.number().int().min(1).max(1000000),
                 unitBaisa: amount,
                 branding: z.string().max(1000),
+                description: z.string().max(2000).optional(),
               }),
             )
             .min(1)
@@ -241,6 +242,7 @@ export async function POST(request: Request) {
           id: old?.id ?? crypto.randomUUID(),
           name: old?.name ?? p.name,
           sku: old?.sku ?? p.sku,
+          description: l.description ?? old?.description ?? p.description ?? "",
           costBaisa: old?.costBaisa ?? convertedCost(p, rate),
         };
       });

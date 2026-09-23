@@ -36,6 +36,7 @@ export type Line = {
   id: string;
   productId: string;
   name: string;
+  description: string;
   sku: string;
   quantity: number;
   unitBaisa: number;
@@ -103,6 +104,7 @@ export type CustomerActivity = {
 export type DeliveryLine = {
   productId: string;
   name: string;
+  description: string;
   sku: string;
   quantity: number;
 };
@@ -124,6 +126,7 @@ export type DeliveryNote = {
 export type InvoiceLine = {
   productId: string;
   name: string;
+  description: string;
   sku: string;
   quantity: number;
   unitBaisa: number;

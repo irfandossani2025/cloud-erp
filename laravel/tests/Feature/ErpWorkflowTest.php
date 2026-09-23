@@ -42,6 +42,22 @@ class ErpWorkflowTest extends TestCase
         return $id;
     }
 
+    private function makeSupplierProduct(): string
+    {
+        $id = (string) Str::uuid();
+        DB::table('products')->insert([
+            'id' => $id,
+            'sku' => 'SUP-'.$id,
+            'name' => 'Supplier Mug',
+            'description' => 'Supplier catalogue description, fixed by the sync.',
+            'supplier_id' => 'sup-'.$id,
+            'warehouse_stock' => 10,
+            'cost_baisa' => 500,
+        ]);
+
+        return $id;
+    }
+
     private function companyId(): string
     {
         return (string) DB::table('companies')->value('id');
@@ -1182,5 +1198,102 @@ class ErpWorkflowTest extends TestCase
         $this->assertSame(1000, $lines['line-1']['unitBaisa']);
         $this->assertSame(2000, $lines['line-2']['unitBaisa']);
         $this->assertDatabaseHas('quotes', ['id' => $quoteId, 'pricing_status' => 'Priced']);
+    }
+
+    public function test_agent_can_override_a_lines_description_even_for_a_supplier_synced_product(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeSupplierProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [[
+                    'productId' => $productId, 'quantity' => 1,
+                    'description' => 'Custom wording for this customer, overriding the supplier text.',
+                ]],
+            ],
+        ])->assertOk()->json('id');
+
+        $lines = json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true);
+        $this->assertSame('Custom wording for this customer, overriding the supplier text.', $lines[0]['description']);
+    }
+
+    public function test_a_lines_description_defaults_to_the_products_catalogue_description(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeSupplierProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1]],
+            ],
+        ])->assertOk()->json('id');
+
+        $lines = json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true);
+        $this->assertSame('Supplier catalogue description, fixed by the sync.', $lines[0]['description']);
+    }
+
+    public function test_editing_a_lines_description_on_a_saved_draft_is_kept(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeSupplierProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [['id' => 'line-1', 'productId' => $productId, 'quantity' => 1]],
+            ],
+        ])->json('id');
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'id' => $quoteId, 'revision' => 1, 'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [[
+                    'id' => 'line-1', 'productId' => $productId, 'quantity' => 1,
+                    'description' => 'Edited after the draft was already saved.',
+                ]],
+            ],
+        ])->assertOk();
+
+        $lines = json_decode(DB::table('quotes')->where('id', $quoteId)->value('lines'), true);
+        $this->assertSame('Edited after the draft was already saved.', $lines[0]['description']);
+    }
+
+    public function test_a_delivery_note_and_invoice_carry_the_lines_edited_description(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeSupplierProduct();
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme', 'rate' => 0.1,
+                'lines' => [[
+                    'productId' => $productId, 'quantity' => 2,
+                    'description' => 'Customer-specific wording.',
+                ]],
+            ],
+        ])->json('id');
+        $this->actingAs($this->makePricingUser())->postJson('/api/erp', [
+            'action' => 'quote_price',
+            'quote' => ['id' => $quoteId, 'lines' => [['productId' => $productId, 'unitBaisa' => 1000]]],
+        ])->assertOk();
+        DB::table('quotes')->where('id', $quoteId)->update(['status' => 'Accepted']);
+
+        $dnId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'delivery_note',
+            'deliveryNote' => ['quoteId' => $quoteId],
+        ])->json('id');
+        $invId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice',
+            'invoice' => ['quoteId' => $quoteId],
+        ])->json('id');
+
+        $dnLines = json_decode(DB::table('delivery_notes')->where('id', $dnId)->value('lines'), true);
+        $invLines = json_decode(DB::table('invoices')->where('id', $invId)->value('lines'), true);
+        $this->assertSame('Customer-specific wording.', $dnLines[0]['description']);
+        $this->assertSame('Customer-specific wording.', $invLines[0]['description']);
     }
 }
