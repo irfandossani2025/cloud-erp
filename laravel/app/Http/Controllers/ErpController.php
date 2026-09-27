@@ -89,7 +89,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_unlock_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -170,11 +170,6 @@ class ErpController extends Controller
         }
         if ($action === 'quote') return $this->quote($request);
         if ($action === 'quote_price') return $this->quotePrice($request);
-        if ($action === 'quote_unlock_price') {
-            $this->access->admin($request);
-            $v = $request->validate(['id' => 'required|uuid|exists:quotes,id']);
-            DB::table('quotes')->where('id', $v['id'])->update(['price_unlocked_by_admin' => true, 'updated' => now()->toIso8601String()]);
-        }
         if ($action === 'quote_delete') {
             $this->access->admin($request);
             $v = $request->validate(['id' => 'required|uuid|exists:quotes,id']);
@@ -315,36 +310,25 @@ class ErpController extends Controller
             $oldById = collect($savedLines)->filter(fn ($l) => !empty($l['id']))->keyBy('id');
             $oldByProduct = collect($savedLines)->keyBy('productId');
             $products = DB::table('products')->whereIn('id', array_column($q['lines'], 'productId'))->get()->keyBy('id');
-            // Prices are set by the Pricing role, not the agent: a brand-new or
-            // still-pending quote always prices its lines at zero, a previously
-            // priced quote keeps its priced amounts, and only an admin-granted
-            // unlock lets the agent's own submitted price through.
-            $wasPriced = $saved && $saved->pricing_status === 'Priced';
-            $unlocked = $saved && (bool) $saved->price_unlocked_by_admin;
-            $anyUnpricedLine = false;
+            // Any agent can price their own quote directly: a submitted unit
+            // price is always honoured, falling back to whatever this line was
+            // last saved at (e.g. when only the quantity or branding changed).
             $lines = []; $total = 0;
             foreach ($q['lines'] as $l) {
                 $p = $products[$l['productId']];
                 $previous = (!empty($l['id']) ? $oldById->get($l['id']) : null) ?? $oldByProduct->get($l['productId']);
-                if ($unlocked) {
-                    $unitBaisa = (int) ($l['unitBaisa'] ?? $previous['unitBaisa'] ?? 0);
-                } elseif ($wasPriced && $previous) {
-                    $unitBaisa = (int) $previous['unitBaisa'];
-                } else {
-                    $unitBaisa = 0;
-                    if ($wasPriced) $anyUnpricedLine = true;
-                }
+                $unitBaisa = (int) ($l['unitBaisa'] ?? $previous['unitBaisa'] ?? 0);
                 $line = ['id' => $l['id'] ?? (string) Str::uuid(), 'productId' => $p->id, 'name' => $previous['name'] ?? $p->name, 'sku' => $previous['sku'] ?? $p->sku, 'quantity' => (int) $l['quantity'], 'unitBaisa' => $unitBaisa, 'branding' => $l['branding'] ?? '', 'description' => $l['description'] ?? ($previous['description'] ?? $p->description ?? ''), 'costBaisa' => $previous['costBaisa'] ?? ($p->supplier_aed === null ? $p->cost_baisa : (int) round($p->supplier_aed * $rate * 10))];
                 $total += $line['quantity'] * $line['unitBaisa']; $lines[] = $line;
             }
             abort_if($total > 1000000000000, 422, 'Quotation total exceeds the supported range.');
             $id = $saved->id ?? (string) Str::uuid();
-            $pricingStatus = $unlocked ? 'Priced' : (($wasPriced && $anyUnpricedLine) ? 'Pending' : ($saved?->pricing_status ?? 'Pending'));
+            $pricingStatus = collect($lines)->every(fn ($l) => $l['unitBaisa'] > 0) ? 'Priced' : 'Pending';
             $values = [
                 'customer' => $q['customer'], 'email' => $q['email'] ?? '', 'notes' => $q['notes'] ?? '',
                 'company_id' => $q['companyId'], 'customer_id' => $q['customerId'] ?? null,
                 'lines' => json_encode($lines, JSON_THROW_ON_ERROR), 'total' => $total, 'updated' => now()->toIso8601String(),
-                'pricing_status' => $pricingStatus, 'price_unlocked_by_admin' => false,
+                'pricing_status' => $pricingStatus,
             ];
             if ($saved) DB::table('quotes')->where('id', $id)->update([...$values, 'revision' => $saved->revision + 1]);
             else DB::table('quotes')->insert([...$values, 'id' => $id, 'agent' => $q['agent'], 'rate' => $rate, 'created' => now()->toIso8601String()]);
@@ -379,7 +363,7 @@ class ErpController extends Controller
             DB::table('quotes')->where('id', $v['id'])->update([
                 'lines' => json_encode($lines, JSON_THROW_ON_ERROR), 'total' => $total,
                 'pricing_status' => 'Priced', 'priced_by' => $request->user()->agent_id,
-                'priced_at' => now()->toIso8601String(), 'price_unlocked_by_admin' => false,
+                'priced_at' => now()->toIso8601String(),
                 'updated' => now()->toIso8601String(), 'revision' => DB::raw('revision + 1'),
             ]);
             return $v['id'];

@@ -36,7 +36,6 @@ import {
   SendHorizontal,
   File as FileIcon,
   X,
-  Unlock,
   DollarSign,
   Wallet,
   AlertTriangle,
@@ -144,8 +143,6 @@ type Draft = {
   notes: string;
   rate: number;
   lines: Line[];
-  pricingStatus: string;
-  priceUnlocked: boolean;
 };
 type Mockup = {
   id: string;
@@ -732,8 +729,6 @@ export default function Home() {
       notes: "",
       rate: data.settings.rate,
       lines: [],
-      pricingStatus: "Pending",
-      priceUnlocked: false,
     });
     setView(null);
     setAiResult(null);
@@ -1664,44 +1659,25 @@ export default function Home() {
                                   }
                                 />
                               </Field>
-                              {draft.priceUnlocked ? (
-                                <Field label="Unit selling price · OMR">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="1000000"
-                                    step="0.001"
-                                    value={l.unitBaisa / 1000}
-                                    onChange={(e) =>
-                                      updateLine(i, {
-                                        unitBaisa: Math.round(
-                                          Number(e.target.value) * 1000,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                </Field>
-                              ) : draft.pricingStatus === "Priced" ? (
-                                <Field label="Unit selling price · OMR">
-                                  <p className="locked-price">
-                                    {money(l.unitBaisa)}
-                                  </p>
-                                </Field>
-                              ) : (
-                                <Field label="Unit selling price · OMR">
-                                  <p className="locked-price">
-                                    Awaiting pricing
-                                  </p>
-                                </Field>
-                              )}
+                              <Field label="Unit selling price · OMR">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="1000000"
+                                  step="0.001"
+                                  value={l.unitBaisa / 1000}
+                                  onChange={(e) =>
+                                    updateLine(i, {
+                                      unitBaisa: Math.round(
+                                        Number(e.target.value) * 1000,
+                                      ),
+                                    })
+                                  }
+                                />
+                              </Field>
                               <div className="line-total">
                                 <small>Line total · OMR</small>
-                                <strong>
-                                  {draft.pricingStatus === "Pending" &&
-                                  !draft.priceUnlocked
-                                    ? "—"
-                                    : money(l.quantity * l.unitBaisa)}
-                                </strong>
+                                <strong>{money(l.quantity * l.unitBaisa)}</strong>
                               </div>
                             </div>
                             <Field label="Description (shown on the quotation)">
@@ -1727,14 +1703,12 @@ export default function Home() {
                                 maxLength={1000}
                               />
                             </Field>
-                            {l.unitBaisa === 0 &&
-                              draft.pricingStatus === "Priced" &&
-                              draft.priceUnlocked && (
-                                <p className="warning">
-                                  Selling price is zero. Enter the price
-                                  before sending to the customer.
-                                </p>
-                              )}
+                            {l.unitBaisa === 0 && (
+                              <p className="warning">
+                                Selling price is zero. Enter the price before
+                                sending to the customer.
+                              </p>
+                            )}
                             {p && l.quantity > p.warehouse_stock && (
                               <p className="warning">
                                 {l.quantity - p.warehouse_stock} units exceed
@@ -1760,17 +1734,10 @@ export default function Home() {
                   <div className="quote-bottom">
                     <div>
                       <small>Subtotal · OMR</small>
-                      <strong>
-                        {draft.pricingStatus === "Pending" &&
-                        !draft.priceUnlocked
-                          ? "Awaiting pricing"
-                          : money(total)}
-                      </strong>
+                      <strong>{money(total)}</strong>
                       <small>
-                        {draft.pricingStatus === "Pending" &&
-                        !draft.priceUnlocked
-                          ? "Save this draft and the Pricing team will send back prices."
-                          : "No tax, delivery or printing charges added automatically."}
+                        No tax, delivery or printing charges added
+                        automatically.
                       </small>
                     </div>
                     <button
@@ -1968,8 +1935,6 @@ export default function Home() {
                           notes: view.notes,
                           rate: view.rate,
                           lines: view.lines,
-                          pricingStatus: view.pricing_status,
-                          priceUnlocked: view.price_unlocked_by_admin,
                         });
                         setView(null);
                       }}
@@ -2000,25 +1965,6 @@ export default function Home() {
                       .map((s) => ({ id: s, name: s }))}
                     disabled={!!busy}
                   />
-                  {data.isAdmin && view.pricing_status === "Priced" && (
-                    <button
-                      className="secondary"
-                      disabled={!!busy || view.price_unlocked_by_admin}
-                      onClick={() =>
-                        void perform("unlock-price", async () => {
-                          await api("quote_unlock_price", { id: view.id });
-                          const d = await refresh();
-                          setView(d.quotes.find((q) => q.id === view.id) || null);
-                          toast.success("Pricing unlocked for this agent");
-                        })
-                      }
-                    >
-                      <Unlock size={16} />
-                      {view.price_unlocked_by_admin
-                        ? "Pricing unlocked"
-                        : "Unlock pricing"}
-                    </button>
-                  )}
                   {view.status === "Accepted" && !hasDeliveryNote(view.id) && (
                     <button
                       className="secondary"

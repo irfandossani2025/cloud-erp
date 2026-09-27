@@ -1349,14 +1349,6 @@ th {
   gap: 10px;
   font-size: 14px;
 }
-.locked-price {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--muted);
-  border-radius: 8px;
-  color: #4a5568;
-  font-size: 14px;
-}
 .pricing-line {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 160px 140px;
