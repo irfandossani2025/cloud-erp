@@ -97,7 +97,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,agent_role,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -148,6 +148,17 @@ class ErpController extends Controller
             $user = User::where('agent_id', $v['agentId'])->first();
             abort_unless($user, 422, 'This sales agent does not have a sign-in login.');
             $user->password = $v['password'];
+            $user->save();
+        }
+        if ($action === 'agent_role') {
+            $this->access->admin($request);
+            $v = $request->validate([
+                'agentId' => 'required|uuid|exists:agents,id',
+                'role' => 'nullable|in:pricing,accounts',
+            ]);
+            $user = User::where('agent_id', $v['agentId'])->first();
+            abort_unless($user, 422, 'This sales agent does not have a sign-in login.');
+            $user->role = $v['role'] ?? null;
             $user->save();
         }
         if ($action === 'settings') {

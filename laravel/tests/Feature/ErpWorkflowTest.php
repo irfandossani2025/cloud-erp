@@ -1424,4 +1424,50 @@ class ErpWorkflowTest extends TestCase
         ])->assertForbidden();
         $this->assertDatabaseHas('invoices', ['id' => $invId, 'vendor_name' => null]);
     }
+
+    public function test_admin_can_change_an_existing_agents_role_to_accounts(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        [, $agentId] = $this->makeAgent('Future Accountant');
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_role', 'agentId' => $agentId, 'role' => 'accounts',
+        ])->assertOk();
+        $this->assertDatabaseHas('users', ['agent_id' => $agentId, 'role' => 'accounts']);
+    }
+
+    public function test_admin_can_revert_an_agents_role_back_to_plain_sales_agent(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        [, $agentId] = $this->makeAgent('Future Accountant');
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_role', 'agentId' => $agentId, 'role' => 'accounts',
+        ])->assertOk();
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_role', 'agentId' => $agentId,
+        ])->assertOk();
+        $this->assertDatabaseHas('users', ['agent_id' => $agentId, 'role' => null]);
+    }
+
+    public function test_a_regular_agent_cannot_change_a_role(): void
+    {
+        [$agent] = $this->makeAgent('Agent One');
+        [, $otherAgentId] = $this->makeAgent('Agent Two');
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'agent_role', 'agentId' => $otherAgentId, 'role' => 'accounts',
+        ])->assertForbidden();
+    }
+
+    public function test_agent_role_cannot_be_set_without_a_sign_in_login(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $agentId = (string) Str::uuid();
+        DB::table('agents')->insert(['id' => $agentId, 'name' => 'No Login Agent']);
+
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'agent_role', 'agentId' => $agentId, 'role' => 'accounts',
+        ])->assertStatus(422);
+    }
 }

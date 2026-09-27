@@ -4394,15 +4394,29 @@ export default function Home() {
                   <div className="agent-row" key={a.id}>
                     <Users size={18} />
                     <strong>{a.name}</strong>
-                    <span className="badge">
-                      {a.role === "pricing"
-                        ? "Pricing"
-                        : a.role === "accounts"
-                          ? "Accounts"
-                          : a.email
-                            ? "Sales agent"
-                            : "No sign-in"}
-                    </span>
+                    {a.email ? (
+                      <select
+                        className="choice"
+                        value={a.role || ""}
+                        disabled={!!busy}
+                        onChange={(e) =>
+                          void perform("agent-role", async () => {
+                            await api("agent_role", {
+                              agentId: a.id,
+                              role: e.target.value || undefined,
+                            });
+                            await refresh();
+                            toast.success("Role updated");
+                          })
+                        }
+                      >
+                        <option value="">Sales agent</option>
+                        <option value="pricing">Pricing</option>
+                        <option value="accounts">Accounts</option>
+                      </select>
+                    ) : (
+                      <span className="badge">No sign-in</span>
+                    )}
                     {a.email && (
                       <button
                         type="button"
