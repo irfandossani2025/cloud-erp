@@ -134,6 +134,7 @@ export type Invoice = {
   id: string;
   number: number;
   quote_id: string;
+  customer_id: string | null;
   agent: string;
   company_id: string;
   customer: string;
@@ -148,6 +149,11 @@ export type Invoice = {
   due_date: string | null;
   paid_at: string | null;
   marked_paid_by: string | null;
+  vendor_name: string | null;
+  purchase_cost_baisa: number | null;
+  transport_cost_baisa: number | null;
+  other_cost_baisa: number | null;
+  other_cost_note: string | null;
   created: string;
   updated: string;
 };

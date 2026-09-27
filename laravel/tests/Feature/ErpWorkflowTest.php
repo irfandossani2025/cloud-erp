@@ -1322,4 +1322,106 @@ class ErpWorkflowTest extends TestCase
         $this->assertSame('Customer-specific wording.', $dnLines[0]['description']);
         $this->assertSame('Customer-specific wording.', $invLines[0]['description']);
     }
+
+    public function test_accounts_role_sees_delivery_notes_and_customers_from_every_agent(): void
+    {
+        [$agentA, $agentAId] = $this->makeAgent('Agent A');
+        [$agentB, $agentBId] = $this->makeAgent('Agent B');
+        $productId = $this->makeProduct();
+        $quoteA = $this->makeAcceptedQuote($agentA, $agentAId, $productId);
+        $this->actingAs($agentA)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteA]])->assertOk();
+        $this->actingAs($agentA)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentAId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe', 'stage' => 'New Lead'],
+        ])->assertOk();
+
+        $quoteB = $this->makeAcceptedQuote($agentB, $agentBId, $productId);
+        $this->actingAs($agentB)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteB]])->assertOk();
+        $this->actingAs($agentB)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => ['agent' => $agentBId, 'company' => 'Beta LLC', 'contactName' => 'John Roe', 'stage' => 'New Lead'],
+        ])->assertOk();
+
+        $accountsView = $this->actingAs($this->makeAccountsUser())->getJson('/api/erp')->json();
+        $this->assertCount(2, $accountsView['deliveryNotes']);
+        $this->assertCount(2, $accountsView['customers']);
+        $agentIds = collect($accountsView['agents'])->pluck('id');
+        $this->assertTrue($agentIds->contains($agentAId));
+        $this->assertTrue($agentIds->contains($agentBId));
+
+        $agentAView = $this->actingAs($agentA)->getJson('/api/erp')->json();
+        $this->assertCount(1, $agentAView['deliveryNotes']);
+        $this->assertCount(1, $agentAView['customers']);
+    }
+
+    public function test_invoice_inherits_the_linked_customer_from_its_quote(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $customerId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'customer',
+            'customer' => [
+                'agent' => $agentId, 'company' => 'Acme LLC', 'contactName' => 'Jane Doe',
+                'vatNumber' => 'OM1234567890', 'stage' => 'New Lead',
+            ],
+        ])->json('id');
+        $quoteId = $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'quote',
+            'quote' => [
+                'agent' => $agentId, 'companyId' => $this->companyId(), 'customer' => 'Acme LLC',
+                'customerId' => $customerId, 'rate' => 0.1,
+                'lines' => [['productId' => $productId, 'quantity' => 1, 'unitBaisa' => 1000]],
+            ],
+        ])->json('id');
+        DB::table('quotes')->where('id', $quoteId)->update(['status' => 'Accepted']);
+        $this->actingAs($agent)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId]])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', ['action' => 'invoice', 'invoice' => ['quoteId' => $quoteId]])->json('id');
+
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'customer_id' => $customerId]);
+    }
+
+    public function test_accounts_role_can_enter_vendor_and_costs_on_an_invoice(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId, unitBaisa: 5000, quantity: 2);
+        $this->actingAs($agent)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId]])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', ['action' => 'invoice', 'invoice' => ['quoteId' => $quoteId]])->json('id');
+
+        $this->actingAs($this->makeAccountsUser())->postJson('/api/erp', [
+            'action' => 'invoice_costs',
+            'id' => $invId,
+            'vendorName' => 'Gulf Gifts LLC',
+            'purchaseCostBaisa' => 4000,
+            'transportCostBaisa' => 500,
+            'otherCostBaisa' => 200,
+            'otherCostNote' => 'Customs clearance',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invId,
+            'vendor_name' => 'Gulf Gifts LLC',
+            'purchase_cost_baisa' => 4000,
+            'transport_cost_baisa' => 500,
+            'other_cost_baisa' => 200,
+            'other_cost_note' => 'Customs clearance',
+        ]);
+        // sales excl VAT = 10000 baisa; gross profit = 10000 - 4000 - 500 - 200 = 5300
+        $inv = DB::table('invoices')->where('id', $invId)->first();
+        $this->assertSame(10000, $inv->subtotal);
+    }
+
+    public function test_a_regular_agent_cannot_enter_invoice_costs(): void
+    {
+        [$agent, $agentId] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $quoteId = $this->makeAcceptedQuote($agent, $agentId, $productId);
+        $this->actingAs($agent)->postJson('/api/erp', ['action' => 'delivery_note', 'deliveryNote' => ['quoteId' => $quoteId]])->assertOk();
+        $invId = $this->actingAs($agent)->postJson('/api/erp', ['action' => 'invoice', 'invoice' => ['quoteId' => $quoteId]])->json('id');
+
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'invoice_costs', 'id' => $invId, 'vendorName' => 'Sneaky Vendor',
+        ])->assertForbidden();
+        $this->assertDatabaseHas('invoices', ['id' => $invId, 'vendor_name' => null]);
+    }
 }

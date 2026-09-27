@@ -315,6 +315,7 @@ export default function Home() {
     [pricingLines, setPricingLines] = useState<Record<string, number>>({});
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null),
     [paymentDate, setPaymentDate] = useState("");
+  const [costsInvoice, setCostsInvoice] = useState<Invoice | null>(null);
   const [outcomeQuote, setOutcomeQuote] = useState<Quote | null>(null),
     [outcomeChoice, setOutcomeChoice] = useState(""),
     [outcomeReason, setOutcomeReason] = useState("");
@@ -612,6 +613,40 @@ export default function Home() {
   );
   const paidInvoices = data.invoices.filter((i) => i.status === "Paid");
   const overdueInvoices = pendingInvoices.filter(isOverdue);
+  const totalVatCollected = data.invoices.reduce(
+    (n, i) => n + i.vat_baisa,
+    0,
+  );
+  const vatByCompany = data.companies.map((c) => ({
+    company: c,
+    vat: data.invoices
+      .filter((i) => i.company_id === c.id)
+      .reduce((n, i) => n + i.vat_baisa, 0),
+  }));
+  const vatByClient = Object.entries(
+    data.invoices.reduce<
+      Record<string, { company: string; vatNumber: string | null; vat: number }>
+    >((acc, i) => {
+      const customer = data.customers.find((c) => c.id === i.customer_id);
+      const key = i.customer_id || i.customer;
+      if (!acc[key]) {
+        acc[key] = {
+          company: customer?.company || i.customer,
+          vatNumber: customer?.vat_number ?? null,
+          vat: 0,
+        };
+      }
+      acc[key].vat += i.vat_baisa;
+      return acc;
+    }, {}),
+  )
+    .map(([id, row]) => ({ id, ...row }))
+    .sort((a, b) => b.vat - a.vat);
+  const invoiceGrossProfit = (i: Invoice) =>
+    i.subtotal -
+    (i.purchase_cost_baisa ?? 0) -
+    (i.transport_cost_baisa ?? 0) -
+    (i.other_cost_baisa ?? 0);
   const wonQuotes = data.quotes.filter((q) => q.outcome === "Won");
   const lostQuotes = data.quotes.filter((q) => q.outcome === "Lost");
   const onHoldQuotes = data.quotes.filter((q) => q.outcome === "OnHold");
@@ -986,6 +1021,26 @@ export default function Home() {
       await api("invoice_payment", { id: i.id, paid: false });
       await refresh();
       toast.success("Payment undone");
+    });
+  }
+  async function submitCosts(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!costsInvoice) return;
+    const f = new FormData(e.currentTarget);
+    const baisa = (name: string) =>
+      f.get(name) === "" ? null : Math.round(Number(f.get(name)) * 1000);
+    await perform("invoice-costs", async () => {
+      await api("invoice_costs", {
+        id: costsInvoice.id,
+        vendorName: String(f.get("vendorName") || "").trim() || null,
+        purchaseCostBaisa: baisa("purchaseCost"),
+        transportCostBaisa: baisa("transportCost"),
+        otherCostBaisa: baisa("otherCost"),
+        otherCostNote: String(f.get("otherCostNote") || "").trim() || null,
+      });
+      await refresh();
+      setCostsInvoice(null);
+      toast.success("Costs saved");
     });
   }
   function openOutcome(q: Quote) {
@@ -3574,6 +3629,12 @@ export default function Home() {
               <span className="stat-label">Overdue</span>
               <strong className="stat-value">{overdueInvoices.length}</strong>
             </div>
+            <div className="stat-card stat-card-won">
+              <span className="stat-label">VAT collected · OMR</span>
+              <strong className="stat-value">
+                {money(totalVatCollected)}
+              </strong>
+            </div>
           </div>
           <section className="panel">
             <div className="section-head">
@@ -3585,6 +3646,7 @@ export default function Home() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Invoice</TableHead>
+                    <TableHead>Company</TableHead>
                     <TableHead>Agent</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Total</TableHead>
@@ -3597,7 +3659,20 @@ export default function Home() {
                   {data.invoices.map((i) => (
                     <TableRow key={i.id}>
                       <TableCell data-label="Invoice" className="card-title">
-                        INV-{String(i.number).padStart(4, "0")}
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setViewInvoice(i);
+                            setDocTab("invoice");
+                            setTab("documents");
+                          }}
+                        >
+                          INV-{String(i.number).padStart(4, "0")}
+                        </button>
+                      </TableCell>
+                      <TableCell data-label="Company">
+                        {companyFor(i.company_id).trading_name ||
+                          companyFor(i.company_id).name}
                       </TableCell>
                       <TableCell data-label="Agent">
                         {agentName(i.agent)}
@@ -3630,21 +3705,29 @@ export default function Home() {
                         </span>
                       </TableCell>
                       <TableCell data-label="" className="card-actions">
-                        {i.status === "Paid" ? (
+                        <div className="actions">
+                          {i.status === "Paid" ? (
+                            <button
+                              className="secondary"
+                              onClick={() => void undoPayment(i)}
+                            >
+                              Undo
+                            </button>
+                          ) : (
+                            <button
+                              className="secondary"
+                              onClick={() => openPayment(i)}
+                            >
+                              <Wallet size={16} /> Mark as paid
+                            </button>
+                          )}
                           <button
                             className="secondary"
-                            onClick={() => void undoPayment(i)}
+                            onClick={() => setCostsInvoice(i)}
                           >
-                            Undo
+                            <Receipt size={16} /> Costs
                           </button>
-                        ) : (
-                          <button
-                            className="secondary"
-                            onClick={() => openPayment(i)}
-                          >
-                            <Wallet size={16} /> Mark as paid
-                          </button>
-                        )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -3654,6 +3737,206 @@ export default function Home() {
               <Blank title="No invoices yet">
                 Invoices appear here once an agent creates one from an
                 accepted quotation.
+              </Blank>
+            )}
+          </section>
+          <section className="panel">
+            <div className="section-head">
+              <h2>Delivery notes</h2>
+              <span className="badge">
+                {data.deliveryNotes.length} total
+              </span>
+            </div>
+            {data.deliveryNotes.length ? (
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Number</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.deliveryNotes.map((n) => (
+                    <TableRow key={n.id}>
+                      <TableCell data-label="Number" className="card-title">
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setViewDeliveryNote(n);
+                            setDocTab("delivery");
+                            setTab("documents");
+                          }}
+                        >
+                          DN-{String(n.number).padStart(4, "0")}
+                        </button>
+                      </TableCell>
+                      <TableCell data-label="Company">
+                        {companyFor(n.company_id).trading_name ||
+                          companyFor(n.company_id).name}
+                      </TableCell>
+                      <TableCell data-label="Agent">
+                        {agentName(n.agent)}
+                      </TableCell>
+                      <TableCell data-label="Customer">
+                        {n.customer}
+                      </TableCell>
+                      <TableCell data-label="Status">
+                        <span className="badge">{n.status}</span>
+                      </TableCell>
+                      <TableCell data-label="Date">
+                        {new Date(n.created).toLocaleDateString("en-OM")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Blank title="No delivery notes yet">
+                Delivery notes appear here once an agent creates one from an
+                accepted quotation.
+              </Blank>
+            )}
+          </section>
+          <section className="panel">
+            <div className="section-head">
+              <div>
+                <h2>Sales &amp; gross profit</h2>
+                <p className="helper">
+                  Enter each invoice's vendor and costs to see its gross
+                  profit.
+                </p>
+              </div>
+              <span className="badge">{data.invoices.length} invoices</span>
+            </div>
+            {data.invoices.length ? (
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Invoice</TableHead>
+                    <TableHead>Sales excl. VAT</TableHead>
+                    <TableHead>Purchase cost</TableHead>
+                    <TableHead>Transport</TableHead>
+                    <TableHead>Other</TableHead>
+                    <TableHead>Gross profit</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.invoices.map((i) => {
+                    const profit = invoiceGrossProfit(i);
+                    const hasCosts =
+                      i.purchase_cost_baisa !== null ||
+                      i.transport_cost_baisa !== null ||
+                      i.other_cost_baisa !== null;
+                    return (
+                      <TableRow key={i.id}>
+                        <TableCell data-label="Company" className="card-title">
+                          {companyFor(i.company_id).trading_name ||
+                            companyFor(i.company_id).name}
+                        </TableCell>
+                        <TableCell data-label="Invoice">
+                          INV-{String(i.number).padStart(4, "0")}
+                        </TableCell>
+                        <TableCell data-label="Sales excl. VAT">
+                          OMR {money(i.subtotal)}
+                        </TableCell>
+                        <TableCell data-label="Purchase cost">
+                          {i.purchase_cost_baisa === null
+                            ? "—"
+                            : `OMR ${money(i.purchase_cost_baisa)}`}
+                        </TableCell>
+                        <TableCell data-label="Transport">
+                          {i.transport_cost_baisa === null
+                            ? "—"
+                            : `OMR ${money(i.transport_cost_baisa)}`}
+                        </TableCell>
+                        <TableCell data-label="Other">
+                          {i.other_cost_baisa === null
+                            ? "—"
+                            : `OMR ${money(i.other_cost_baisa)}`}
+                        </TableCell>
+                        <TableCell data-label="Gross profit">
+                          <strong
+                            className={profit < 0 ? "overdue-date" : undefined}
+                          >
+                            OMR {money(profit)}
+                          </strong>
+                        </TableCell>
+                        <TableCell className="card-actions">
+                          <button
+                            className="secondary"
+                            onClick={() => setCostsInvoice(i)}
+                          >
+                            {hasCosts ? "Edit costs" : "Enter costs"}
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            ) : (
+              <Blank title="No sales yet">
+                Invoices will appear here once agents raise them.
+              </Blank>
+            )}
+          </section>
+          <section className="panel">
+            <div className="section-head">
+              <div>
+                <h2>VAT report</h2>
+                <p className="helper">
+                  VAT collected per client, with their VAT registration
+                  number.
+                </p>
+              </div>
+              <span className="badge">
+                OMR {money(totalVatCollected)} total
+              </span>
+            </div>
+            <div className="stat-grid">
+              {vatByCompany.map(({ company, vat }) => (
+                <div className="stat-card" key={company.id}>
+                  <span className="stat-label">
+                    {company.trading_name || company.name}
+                  </span>
+                  <strong className="stat-value">OMR {money(vat)}</strong>
+                </div>
+              ))}
+            </div>
+            {vatByClient.length ? (
+              <Table className="responsive-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>VAT number</TableHead>
+                    <TableHead>VAT collected</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {vatByClient.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell data-label="Client" className="card-title">
+                        {row.company}
+                      </TableCell>
+                      <TableCell data-label="VAT number">
+                        {row.vatNumber || "—"}
+                      </TableCell>
+                      <TableCell data-label="VAT collected">
+                        OMR {money(row.vat)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Blank title="No VAT collected yet">
+                VAT appears here once invoices are raised.
               </Blank>
             )}
           </section>
@@ -4588,6 +4871,92 @@ export default function Home() {
               <div className="quote-bottom">
                 <button className="primary" disabled={!!busy}>
                   <Check size={16} /> Confirm payment
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!costsInvoice}
+        onOpenChange={(open) => !open && setCostsInvoice(null)}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {costsInvoice &&
+              `Vendor & costs · INV-${String(costsInvoice.number).padStart(4, "0")}`}
+          </DialogTitle>
+          <DialogDescription>
+            {costsInvoice &&
+              `${costsInvoice.customer} · Sales OMR ${money(costsInvoice.subtotal)} excl. VAT`}
+          </DialogDescription>
+          {costsInvoice && (
+            <form
+              key={costsInvoice.id}
+              className="pricing-form"
+              onSubmit={submitCosts}
+            >
+              <Field label="Vendor">
+                <input
+                  name="vendorName"
+                  maxLength={200}
+                  defaultValue={costsInvoice.vendor_name ?? ""}
+                  placeholder="Who the products were purchased from"
+                />
+              </Field>
+              <Field label="Purchase cost · OMR">
+                <input
+                  name="purchaseCost"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.001"
+                  defaultValue={
+                    costsInvoice.purchase_cost_baisa === null
+                      ? ""
+                      : costsInvoice.purchase_cost_baisa / 1000
+                  }
+                />
+              </Field>
+              <Field label="Transport cost · OMR">
+                <input
+                  name="transportCost"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.001"
+                  defaultValue={
+                    costsInvoice.transport_cost_baisa === null
+                      ? ""
+                      : costsInvoice.transport_cost_baisa / 1000
+                  }
+                />
+              </Field>
+              <Field label="Other costs · OMR">
+                <input
+                  name="otherCost"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.001"
+                  defaultValue={
+                    costsInvoice.other_cost_baisa === null
+                      ? ""
+                      : costsInvoice.other_cost_baisa / 1000
+                  }
+                />
+              </Field>
+              <Field label="Other costs note (optional)">
+                <input
+                  name="otherCostNote"
+                  maxLength={500}
+                  defaultValue={costsInvoice.other_cost_note ?? ""}
+                  placeholder="e.g. packaging, customs"
+                />
+              </Field>
+              <div className="quote-bottom">
+                <button className="primary" disabled={!!busy}>
+                  <Check size={16} /> Save costs
                 </button>
               </div>
             </form>

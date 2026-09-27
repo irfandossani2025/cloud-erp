@@ -21,6 +21,8 @@ class ErpController extends Controller
         $seesAllQuotes = $isAdmin || $role === 'pricing';
         $canSeeCost = $isAdmin || $role === 'pricing';
         $seesAllInvoices = $isAdmin || $role === 'accounts';
+        $seesAllDeliveryNotes = $isAdmin || $role === 'accounts';
+        $seesAllCustomers = $isAdmin || $role === 'accounts';
 
         $agents = DB::table('agents')
             ->leftJoin('users', 'users.agent_id', '=', 'agents.id')
@@ -33,10 +35,16 @@ class ErpController extends Controller
         $invoices = DB::table('invoices')->orderByDesc('number');
         $salesGoals = DB::table('sales_goals');
         if (!$isAdmin) {
-            $agents->where('agents.id', $agentId);
-            $customers->where('agent', $agentId);
-            $activities->where('agent', $agentId);
-            $deliveryNotes->where('agent', $agentId);
+            if (!$seesAllInvoices) {
+                $agents->where('agents.id', $agentId);
+            }
+            if (!$seesAllCustomers) {
+                $customers->where('agent', $agentId);
+                $activities->where('agent', $agentId);
+            }
+            if (!$seesAllDeliveryNotes) {
+                $deliveryNotes->where('agent', $agentId);
+            }
             $salesGoals->where('agent_id', $agentId);
         }
         if (!$seesAllQuotes) {
@@ -89,7 +97,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -254,6 +262,25 @@ class ErpController extends Controller
             $this->access->admin($request);
             $v = $request->validate(['id' => 'required|uuid|exists:invoices,id']);
             DB::table('invoices')->where('id', $v['id'])->delete();
+        }
+        if ($action === 'invoice_costs') {
+            $this->access->accounts($request);
+            $v = $request->validate([
+                'id' => 'required|uuid|exists:invoices,id',
+                'vendorName' => 'nullable|string|max:200',
+                'purchaseCostBaisa' => 'nullable|integer|min:0|max:1000000000',
+                'transportCostBaisa' => 'nullable|integer|min:0|max:1000000000',
+                'otherCostBaisa' => 'nullable|integer|min:0|max:1000000000',
+                'otherCostNote' => 'nullable|string|max:500',
+            ]);
+            DB::table('invoices')->where('id', $v['id'])->update([
+                'vendor_name' => $v['vendorName'] ?? null,
+                'purchase_cost_baisa' => $v['purchaseCostBaisa'] ?? null,
+                'transport_cost_baisa' => $v['transportCostBaisa'] ?? null,
+                'other_cost_baisa' => $v['otherCostBaisa'] ?? null,
+                'other_cost_note' => $v['otherCostNote'] ?? null,
+                'updated' => now()->toIso8601String(),
+            ]);
         }
         if ($action === 'invoice_payment') {
             $this->access->accounts($request);
@@ -474,7 +501,7 @@ class ErpController extends Controller
         $id = (string) Str::uuid();
         $poNumber = DB::table('delivery_notes')->where('quote_id', $quote->id)->value('po_number');
         DB::table('invoices')->insert([
-            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
+            'id' => $id, 'quote_id' => $quote->id, 'customer_id' => $quote->customer_id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
             'customer' => $quote->customer, 'email' => $quote->email, 'po_number' => $poNumber,
             'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
             'subtotal' => $subtotal, 'vat_baisa' => $vat, 'total' => $total,
