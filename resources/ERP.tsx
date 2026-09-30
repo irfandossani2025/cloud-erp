@@ -2494,17 +2494,15 @@ export default function Home() {
                         </TableCell>
                         <TableCell className="card-actions">
                           <div className="actions">
-                            {data.isAdmin && (
-                              <button
-                                className="secondary"
-                                onClick={() => {
-                                  setEditProduct(p);
-                                  setProductDialog(true);
-                                }}
-                              >
-                                Update
-                              </button>
-                            )}
+                            <button
+                              className="secondary"
+                              onClick={() => {
+                                setEditProduct(p);
+                                setProductDialog(true);
+                              }}
+                            >
+                              Update
+                            </button>
                             <button
                               className="text-button"
                               onClick={() => {
@@ -4536,7 +4534,9 @@ export default function Home() {
         <DialogContent className="product-dialog">
           <DialogTitle>
             {editProduct
-              ? "Update stock and selling price"
+              ? data.isAdmin
+                ? "Update stock and selling price"
+                : "Update selling price"
               : addToDraft
                 ? "Add a product to this quotation"
                 : "Add product"}
@@ -4575,8 +4575,12 @@ export default function Home() {
                 </p>
               </>
             )}
-            <div className={data.isAdmin ? "form-grid" : undefined}>
-              {data.isAdmin && (
+            <div
+              className={
+                data.isAdmin || editProduct ? "form-grid" : undefined
+              }
+            >
+              {(data.isAdmin || editProduct) && (
                 <Field label="Our warehouse quantity">
                   <input
                     name="warehouse"
@@ -4586,6 +4590,7 @@ export default function Home() {
                     step="1"
                     defaultValue={editProduct?.warehouse_stock ?? 0}
                     required
+                    readOnly={!data.isAdmin}
                   />
                 </Field>
               )}
@@ -4611,6 +4616,11 @@ export default function Home() {
               <p className="helper">
                 New products are added with zero warehouse quantity. An
                 administrator can set stock afterwards.
+              </p>
+            )}
+            {!data.isAdmin && editProduct && (
+              <p className="helper">
+                Only an administrator can change warehouse quantity.
               </p>
             )}
             {!editProduct && data.isAdmin && (

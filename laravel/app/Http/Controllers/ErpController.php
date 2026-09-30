@@ -99,7 +99,7 @@ class ErpController extends Controller
         $action = $request->validate([
             'action' => 'required|in:product,stock,agent,agent_password,agent_role,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
         ])['action'];
-        if (in_array($action, ['stock', 'agent', 'settings', 'sync'])) $this->access->admin($request);
+        if (in_array($action, ['agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
         if ($action === 'product') {
             $v = $request->validate([
@@ -117,6 +117,9 @@ class ErpController extends Controller
         }
         if ($action === 'stock') {
             $v = $request->validate(['id' => 'required|uuid|exists:products,id', 'warehouseStock' => 'required|integer|min:0|max:1000000', 'saleBaisa' => 'nullable|integer|min:0|max:1000000000']);
+            $product = DB::table('products')->where('id', $v['id'])->first();
+            abort_unless($product, 404, 'Product not found.');
+            abort_if(!$request->user()->is_admin && $v['warehouseStock'] !== $product->warehouse_stock, 403, 'Only an administrator can change warehouse quantities.');
             DB::table('products')->where('id', $v['id'])->update(['warehouse_stock' => $v['warehouseStock'], 'sale_baisa' => $v['saleBaisa'] ?? null]);
         }
         if ($action === 'agent') {

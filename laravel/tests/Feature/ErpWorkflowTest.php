@@ -315,6 +315,36 @@ class ErpWorkflowTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_a_regular_agent_can_update_a_products_selling_price(): void
+    {
+        [$agent] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'stock', 'id' => $productId, 'warehouseStock' => 10, 'saleBaisa' => 5000,
+        ])->assertOk();
+        $this->assertDatabaseHas('products', ['id' => $productId, 'sale_baisa' => 5000, 'warehouse_stock' => 10]);
+    }
+
+    public function test_a_regular_agent_cannot_change_a_products_warehouse_stock(): void
+    {
+        [$agent] = $this->makeAgent('Agent One');
+        $productId = $this->makeProduct();
+        $this->actingAs($agent)->postJson('/api/erp', [
+            'action' => 'stock', 'id' => $productId, 'warehouseStock' => 99, 'saleBaisa' => 5000,
+        ])->assertForbidden();
+        $this->assertDatabaseHas('products', ['id' => $productId, 'warehouse_stock' => 10, 'sale_baisa' => null]);
+    }
+
+    public function test_admin_can_update_both_stock_and_price(): void
+    {
+        [$admin] = $this->makeAgent('Admin User', true);
+        $productId = $this->makeProduct();
+        $this->actingAs($admin)->postJson('/api/erp', [
+            'action' => 'stock', 'id' => $productId, 'warehouseStock' => 25, 'saleBaisa' => 7500,
+        ])->assertOk();
+        $this->assertDatabaseHas('products', ['id' => $productId, 'warehouse_stock' => 25, 'sale_baisa' => 7500]);
+    }
+
     public function test_non_admin_cannot_sync_supplier_or_change_settings(): void
     {
         [$agent] = $this->makeAgent('Agent One');
