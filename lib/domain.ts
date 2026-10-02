@@ -337,3 +337,9 @@ export type OrderEvent = {
   file_mime: string | null;
   file_size: number | null;
 };
+export type InvoiceReminder = {
+  invoice_id: string;
+  days_before: number;
+  sent_to: string;
+  sent_at: string;
+};

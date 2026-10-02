@@ -34,6 +34,7 @@ class DocumentFactory
         $vat = (int) round($subtotal * config('erp.vat_rate'));
         $total = $subtotal + $vat;
         $id = (string) Str::uuid();
+        $dueDate ??= now(config('erp.timezone'))->addDays(config('erp.payment_terms_days'))->toDateString();
         $poNumber = DB::table('delivery_notes')->where('quote_id', $quote->id)->value('po_number');
         DB::table('invoices')->insert([
             'id' => $id, 'quote_id' => $quote->id, 'customer_id' => $quote->customer_id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,

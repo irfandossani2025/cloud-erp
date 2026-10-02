@@ -70,6 +70,8 @@ class ErpController extends Controller
             });
         }
 
+        $invoiceRows = $invoices->get();
+        $invoiceIds = $invoiceRows->pluck('id');
         $orders = $orders->get();
         $orderEvents = DB::table('order_events')->whereIn('order_id', $orders->pluck('id'))->orderBy('created')->get()
             ->map(fn ($e) => [
@@ -81,6 +83,7 @@ class ErpController extends Controller
         return response()->json([
             'orders' => $orders,
             'orderEvents' => $orderEvents,
+            'invoiceReminders' => DB::table('invoice_reminders')->whereIn('invoice_id', $invoiceIds)->orderBy('sent_at')->get(['invoice_id', 'days_before', 'sent_to', 'sent_at']),
             'products' => $products,
             'quotes' => $quotes->get()->map(function ($q) use ($canSeeCost) {
                 $lines = json_decode($q->lines, true);
@@ -97,7 +100,7 @@ class ErpController extends Controller
             'customers' => $customers->get(),
             'customerActivities' => $activities->get(),
             'deliveryNotes' => $deliveryNotes->get()->map(fn ($d) => [...(array) $d, 'lines' => json_decode($d->lines, true)]),
-            'invoices' => $invoices->get()->map(fn ($i) => [...(array) $i, 'lines' => json_decode($i->lines, true)]),
+            'invoices' => $invoiceRows->map(fn ($i) => [...(array) $i, 'lines' => json_decode($i->lines, true)]),
             'salesGoals' => $salesGoals->get(),
             'settings' => $settings ? [...(array) $settings, 'rate' => (float) $settings->rate] : ['rate' => config('erp.default_rate'), 'company' => 'Cloud ERP', 'vat_number' => null, 'updated' => null],
             'vatRate' => config('erp.vat_rate'),
@@ -281,10 +284,22 @@ class ErpController extends Controller
         }
         if ($action === 'invoice') return $this->invoice($request);
         if ($action === 'invoice_update') {
-            $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'poNumber' => 'nullable|string|max:100']);
+            $v = $request->validate([
+                'id' => 'required|uuid|exists:invoices,id',
+                'poNumber' => 'nullable|string|max:100',
+                'dueDate' => 'nullable|date_format:Y-m-d',
+                'email' => 'nullable|email|max:254',
+            ]);
             $inv = DB::table('invoices')->where('id', $v['id'])->first();
-            $this->access->agent($request, $inv->agent);
-            DB::table('invoices')->where('id', $v['id'])->update(['po_number' => $v['poNumber'] ?? null, 'updated' => now()->toIso8601String()]);
+            if ($request->user()->role !== 'accounts') {
+                $this->access->agent($request, $inv->agent);
+            }
+            DB::table('invoices')->where('id', $v['id'])->update([
+                'po_number' => $v['poNumber'] ?? null,
+                'due_date' => $v['dueDate'] ?? null,
+                'email' => $v['email'] ?? '',
+                'updated' => now()->toIso8601String(),
+            ]);
         }
         if ($action === 'invoice_status') {
             $v = $request->validate(['id' => 'required|uuid|exists:invoices,id', 'status' => 'required|in:Draft,Sent,Cancelled']);

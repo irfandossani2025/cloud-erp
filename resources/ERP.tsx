@@ -105,6 +105,7 @@ import {
   type SalesGoal,
   type Order,
   type OrderEvent,
+  type InvoiceReminder,
 } from "@/lib/domain";
 type Agent = {
   id: string;
@@ -113,6 +114,7 @@ type Agent = {
   role: string | null;
 };
 type State = {
+  invoiceReminders: InvoiceReminder[];
   orders: Order[];
   orderEvents: OrderEvent[];
   products: Product[];
@@ -178,6 +180,7 @@ type ThreadMessage = {
   attachments: MessageAttachment[];
 };
 const initial: State = {
+  invoiceReminders: [],
   orders: [],
   orderEvents: [],
   products: [],
@@ -3229,12 +3232,14 @@ export default function Home() {
                     await api("invoice_update", {
                       id: viewInvoice.id,
                       poNumber: String(f.get("poNumber") || "") || undefined,
+                      dueDate: String(f.get("dueDate") || "") || undefined,
+                      email: String(f.get("email") || "").trim() || undefined,
                     });
                     const d = await refresh();
                     setViewInvoice(
                       d.invoices.find((i) => i.id === viewInvoice.id) || null,
                     );
-                    toast.success("Purchase order number saved");
+                    toast.success("Invoice details saved");
                   });
                 }}
               >
@@ -3246,10 +3251,44 @@ export default function Home() {
                     placeholder="Customer's PO number"
                   />
                 </Field>
+                <Field label="Payment due date">
+                  <input
+                    name="dueDate"
+                    type="date"
+                    defaultValue={viewInvoice.due_date?.slice(0, 10) ?? ""}
+                  />
+                </Field>
+                <Field label="Customer email (for reminders)">
+                  <input
+                    name="email"
+                    type="email"
+                    maxLength={254}
+                    defaultValue={viewInvoice.email}
+                    placeholder="accounts@customer.com"
+                  />
+                </Field>
                 <button className="secondary" disabled={!!busy}>
                   <Check size={16} /> Save
                 </button>
               </form>
+              <p className="helper no-print">
+                {data.invoiceReminders.filter((r) => r.invoice_id === viewInvoice.id)
+                  .length
+                  ? data.invoiceReminders
+                      .filter((r) => r.invoice_id === viewInvoice.id)
+                      .map(
+                        (r) =>
+                          `Reminder sent to ${r.sent_to} on ${new Date(r.sent_at).toLocaleDateString("en-OM")} (${r.days_before} day${r.days_before === 1 ? "" : "s"} before due).`,
+                      )
+                      .join(" ")
+                  : viewInvoice.status !== "Sent"
+                    ? "Payment reminders are emailed to the customer 7 days and 1 day before the due date once this invoice is marked Sent."
+                    : !viewInvoice.email
+                      ? "Add a customer email to enable payment reminders."
+                      : !viewInvoice.due_date
+                        ? "Set a due date to enable payment reminders."
+                        : "Payment reminders will be emailed 7 days and 1 day before the due date."}
+              </p>
               <div className="print-document">
                 <div className="document-heading">
                   <div className="document-brand">

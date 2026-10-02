@@ -1433,6 +1433,7 @@ th {
 }
 .po-form {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px;
   margin: 16px 0;
