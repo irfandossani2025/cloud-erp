@@ -9,7 +9,7 @@ return new class extends Migration {
     public function up(): void
     {
         // Guarded so a run that stopped part-way (MySQL DDL isn't transactional) can be repeated.
-        if (!Schema::hasColumn('agents', 'takes_leads')) {
+        if (!$this->hasColumn('agents', 'takes_leads')) {
             Schema::table('agents', function (Blueprint $t) {
                 $t->boolean('takes_leads')->default(true);
                 $t->string('last_lead_at')->nullable();
@@ -52,6 +52,16 @@ return new class extends Migration {
             $t->string('created');
             $t->string('last_used_at')->nullable();
         });
+    }
+
+    /** Schema::hasColumn reads information_schema columns that MariaDB 10.1 lacks. */
+    private function hasColumn(string $table, string $column): bool
+    {
+        if (DB::getDriverName() === 'sqlite') {
+            return Schema::hasColumn($table, $column);
+        }
+
+        return count(DB::select("SHOW COLUMNS FROM `{$table}` LIKE ?", [$column])) > 0;
     }
 
     public function down(): void
