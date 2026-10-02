@@ -61,7 +61,8 @@ return new class extends Migration {
             return Schema::hasColumn($table, $column);
         }
 
-        return count(DB::select("SHOW COLUMNS FROM `{$table}` LIKE ?", [$column])) > 0;
+        // Names are constants from this file; SHOW can't take bound parameters on MariaDB 10.1.
+        return count(DB::select("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'")) > 0;
     }
 
     public function down(): void
