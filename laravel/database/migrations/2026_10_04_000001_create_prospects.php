@@ -8,14 +8,18 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('agents', function (Blueprint $t) {
-            $t->boolean('takes_leads')->default(true);
-            $t->string('last_lead_at')->nullable();
-        });
+        // Guarded so a run that stopped part-way (MySQL DDL isn't transactional) can be repeated.
+        if (!Schema::hasColumn('agents', 'takes_leads')) {
+            Schema::table('agents', function (Blueprint $t) {
+                $t->boolean('takes_leads')->default(true);
+                $t->string('last_lead_at')->nullable();
+            });
+        }
         // The accountant never works leads.
         $accountants = DB::table('users')->where('role', 'accounts')->whereNotNull('agent_id')->pluck('agent_id');
         DB::table('agents')->whereIn('id', $accountants)->update(['takes_leads' => false]);
 
+        Schema::dropIfExists('prospects');
         Schema::create('prospects', function (Blueprint $t) {
             $t->uuid('id')->primary();
             $t->foreignUuid('agent')->nullable()->constrained('agents')->nullOnDelete();
@@ -37,10 +41,11 @@ return new class extends Migration {
             $t->string('created');
             $t->string('updated');
             $t->index(['agent', 'status']);
-            $t->index('email');
-            $t->index('linkedin_url');
+            // No index on email/linkedin_url: MariaDB 10.1 caps key length at 767 bytes
+            // and the table is small enough to scan.
         });
 
+        Schema::dropIfExists('capture_tokens');
         Schema::create('capture_tokens', function (Blueprint $t) {
             $t->unsignedBigInteger('user_id')->primary();
             $t->string('token_hash', 64)->unique();
