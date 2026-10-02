@@ -233,3 +233,107 @@ export function normaliseSupplier(raw: unknown) {
     };
   });
 }
+export const ORDER_STAGES = [
+  {
+    key: "sales_order",
+    label: "Sales order",
+    short: "Sales order",
+    hint: "Upload the customer's purchase order or email confirmation.",
+    file: "any",
+  },
+  {
+    key: "order_received",
+    label: "Order received by production",
+    short: "Received",
+    hint: "Confirm production has received the order.",
+    file: null,
+  },
+  {
+    key: "sample_photo",
+    label: "1st sample photo",
+    short: "Sample",
+    hint: "Upload a photo of the first sample.",
+    file: "image",
+  },
+  {
+    key: "material_approval",
+    label: "Material approval",
+    short: "Approval",
+    hint: "Record the customer's approval of the material and sample.",
+    file: null,
+  },
+  {
+    key: "bulk_production",
+    label: "Bulk production",
+    short: "Production",
+    hint: "Bulk production is under way. Complete this when it is finished.",
+    file: null,
+  },
+  {
+    key: "order_packed",
+    label: "Order packed",
+    short: "Packed",
+    hint: "The order is packed and ready to ship.",
+    file: null,
+  },
+  {
+    key: "in_transport",
+    label: "In transport",
+    short: "Transport",
+    hint: "The order is on its way to the transport warehouse.",
+    file: null,
+  },
+  {
+    key: "at_warehouse",
+    label: "Arrived at transport warehouse",
+    short: "Warehouse",
+    hint: "The order has arrived at the transport warehouse.",
+    file: null,
+  },
+  {
+    key: "qc",
+    label: "Quality check",
+    short: "QC",
+    hint: "Passing QC prepares a draft delivery note and invoice from the quotation.",
+    file: null,
+  },
+  {
+    key: "delivery",
+    label: "Delivery to client",
+    short: "Delivery",
+    hint: "Confirm the client has received the order. This marks the delivery note as delivered.",
+    file: null,
+  },
+  {
+    key: "completed",
+    label: "Completed",
+    short: "Done",
+    hint: "",
+    file: null,
+  },
+] as const;
+export type Order = {
+  number: number;
+  id: string;
+  quote_id: string;
+  agent: string;
+  company_id: string | null;
+  customer: string;
+  stage: string;
+  po_number: string | null;
+  po_amount_baisa: number | null;
+  created: string;
+  updated: string;
+};
+export type OrderEvent = {
+  id: string;
+  order_id: string;
+  kind: "stage" | "note";
+  stage: string;
+  note: string | null;
+  actor: string;
+  created: string;
+  file_name: string | null;
+  file_mime: string | null;
+  file_size: number | null;
+};

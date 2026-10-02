@@ -1608,3 +1608,131 @@ th {
     -webkit-print-color-adjust: exact;
   }
 }
+.order-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.order-head h2 {
+  margin: 0;
+}
+.order-stepper {
+  list-style: none;
+  display: flex;
+  gap: 4px;
+  padding: 0;
+  margin: 0 0 22px;
+  overflow-x: auto;
+}
+.order-stepper li {
+  flex: 1 0 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  color: #8a94a6;
+  font-size: 12px;
+  text-align: center;
+}
+.order-stepper li::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+.order-stepper li:first-child::before {
+  display: none;
+}
+.order-stepper .dot {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 2px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+}
+.order-stepper li.done {
+  color: #1c6b34;
+}
+.order-stepper li.done::before,
+.order-stepper li.current::before {
+  background: #1c6b34;
+}
+.order-stepper li.done .dot {
+  background: #1c6b34;
+  border-color: #1c6b34;
+  color: #fff;
+}
+.order-stepper li.current {
+  color: #1756bd;
+  font-weight: 600;
+}
+.order-stepper li.current .dot {
+  border-color: #1756bd;
+  color: #1756bd;
+}
+.order-step-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  margin-bottom: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafd;
+}
+.order-step-form h3 {
+  margin: 2px 0 4px;
+}
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+.timeline-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.timeline-item p {
+  margin: 8px 0 0;
+}
+.timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.timeline-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: #1756bd;
+  font-size: 14px;
+}
+.timeline-file img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+@media print {
+  .order-stepper,
+  .order-step-form {
+    display: none !important;
+  }
+}

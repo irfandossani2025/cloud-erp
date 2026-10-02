@@ -7,6 +7,7 @@ use App\Http\Controllers\AiController;
 use App\Http\Controllers\MockupController;
 use App\Http\Controllers\MessagingController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\OrderController;
 
 Route::middleware('guest')->group(function () {
     Route::view('/login', 'login')->name('login');
@@ -29,4 +30,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/messages/asset', [MessagingController::class, 'asset']);
     Route::post('/api/products/{id}/photo', [ProductController::class, 'storePhoto'])->middleware('throttle:20,1');
     Route::get('/api/product-assets/{id}', [ProductController::class, 'asset']);
+    Route::post('/api/orders/{id}/advance', [OrderController::class, 'advance'])->middleware('throttle:30,1');
+    Route::post('/api/orders/{id}/note', [OrderController::class, 'note'])->middleware('throttle:30,1');
+    Route::get('/api/order-files/{id}', [OrderController::class, 'file']);
 });

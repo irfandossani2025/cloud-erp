@@ -25,6 +25,7 @@ import {
   LogOut,
   Contact,
   Receipt,
+  ClipboardList,
   Truck,
   Phone,
   Mail,
@@ -50,6 +51,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { request } from "./http";
+import OrdersPanel from "./OrdersPanel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -101,6 +103,8 @@ import {
   type Invoice,
   type Company,
   type SalesGoal,
+  type Order,
+  type OrderEvent,
 } from "@/lib/domain";
 type Agent = {
   id: string;
@@ -109,6 +113,8 @@ type Agent = {
   role: string | null;
 };
 type State = {
+  orders: Order[];
+  orderEvents: OrderEvent[];
   products: Product[];
   quotes: Quote[];
   agents: Agent[];
@@ -172,6 +178,8 @@ type ThreadMessage = {
   attachments: MessageAttachment[];
 };
 const initial: State = {
+  orders: [],
+  orderEvents: [],
   products: [],
   quotes: [],
   agents: [],
@@ -310,7 +318,8 @@ export default function Home() {
     [viewDeliveryNote, setViewDeliveryNote] = useState<DeliveryNote | null>(
       null,
     ),
-    [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+    [viewInvoice, setViewInvoice] = useState<Invoice | null>(null),
+    [viewOrderId, setViewOrderId] = useState<string | null>(null);
   const [pricingQuote, setPricingQuote] = useState<Quote | null>(null),
     [pricingLines, setPricingLines] = useState<Record<string, number>>({});
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null),
@@ -1060,7 +1069,12 @@ export default function Home() {
       const d = await refresh();
       setView((v) => (v ? d.quotes.find((q) => q.id === v.id) || v : v));
       setOutcomeQuote(null);
-      toast.success("Outcome updated");
+      toast.success(
+        outcomeChoice === "Won" &&
+          d.orders.some((o) => o.quote_id === outcomeQuote.id)
+          ? "Won — track it in the Orders tab"
+          : "Outcome updated",
+      );
     });
   }
   async function submitGoal(e: FormEvent<HTMLFormElement>) {
@@ -1279,6 +1293,10 @@ export default function Home() {
           <TabsTrigger value="quotations">
             <FileText />
             Quotations
+          </TabsTrigger>
+          <TabsTrigger value="orders">
+            <ClipboardList />
+            Orders
           </TabsTrigger>
           <TabsTrigger value="inventory">
             <Package />
@@ -2045,6 +2063,20 @@ export default function Home() {
                   >
                     <Flag size={16} /> Set outcome
                   </button>
+                  {data.orders.some((o) => o.quote_id === view.id) && (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setViewOrderId(
+                          data.orders.find((o) => o.quote_id === view.id)?.id ??
+                            null,
+                        );
+                        setTab("orders");
+                      }}
+                    >
+                      <ClipboardList size={16} /> Order
+                    </button>
+                  )}
                   <button className="secondary" onClick={() => window.print()}>
                     <Printer size={16} /> Print / PDF
                   </button>
@@ -2366,6 +2398,36 @@ export default function Home() {
               </section>
             </>
           )}
+        </TabsContent>
+        <TabsContent value="orders">
+          <OrdersPanel
+            orders={data.orders}
+            events={data.orderEvents}
+            quotes={data.quotes}
+            deliveryNotes={data.deliveryNotes}
+            invoices={data.invoices}
+            companies={data.companies}
+            vatRate={data.vatRate}
+            selectedId={viewOrderId}
+            onSelect={setViewOrderId}
+            canAct={(o) => data.isAdmin || o.agent === data.userAgentId}
+            agentName={agentName}
+            onRefresh={refresh}
+            onOpenQuote={(q) => {
+              setView(q);
+              setTab("quotations");
+            }}
+            onOpenDeliveryNote={(n) => {
+              setViewDeliveryNote(n);
+              setDocTab("delivery");
+              setTab("documents");
+            }}
+            onOpenInvoice={(i) => {
+              setViewInvoice(i);
+              setDocTab("invoice");
+              setTab("documents");
+            }}
+          />
         </TabsContent>
         <TabsContent value="inventory">
           <section className="panel">

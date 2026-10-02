@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\DocumentFactory;
 use App\Services\ErpAccess;
+use App\Services\OrderWorkflow;
 use App\Services\SupplierCatalogue;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,7 +13,7 @@ use Illuminate\Support\Str;
 
 class ErpController extends Controller
 {
-    public function __construct(private ErpAccess $access) {}
+    public function __construct(private ErpAccess $access, private DocumentFactory $documents, private OrderWorkflow $orders) {}
 
     public function index(Request $request)
     {
@@ -34,6 +36,10 @@ class ErpController extends Controller
         $deliveryNotes = DB::table('delivery_notes')->orderByDesc('number');
         $invoices = DB::table('invoices')->orderByDesc('number');
         $salesGoals = DB::table('sales_goals');
+        $orders = DB::table('orders')->orderByDesc('number');
+        if (!$isAdmin && !$seesAllInvoices) {
+            $orders->where('agent', $agentId);
+        }
         if (!$isAdmin) {
             if (!$seesAllInvoices) {
                 $agents->where('agents.id', $agentId);
@@ -64,7 +70,17 @@ class ErpController extends Controller
             });
         }
 
+        $orders = $orders->get();
+        $orderEvents = DB::table('order_events')->whereIn('order_id', $orders->pluck('id'))->orderBy('created')->get()
+            ->map(fn ($e) => [
+                'id' => $e->id, 'order_id' => $e->order_id, 'kind' => $e->kind, 'stage' => $e->stage,
+                'note' => $e->note, 'actor' => $e->actor, 'created' => $e->created,
+                'file_name' => $e->file_name, 'file_mime' => $e->file_mime, 'file_size' => $e->file_size,
+            ]);
+
         return response()->json([
+            'orders' => $orders,
+            'orderEvents' => $orderEvents,
             'products' => $products,
             'quotes' => $quotes->get()->map(function ($q) use ($canSeeCost) {
                 $lines = json_decode($q->lines, true);
@@ -196,6 +212,7 @@ class ErpController extends Controller
             $this->access->admin($request);
             $v = $request->validate(['id' => 'required|uuid|exists:quotes,id']);
             DB::transaction(function () use ($v) {
+                $this->orders->purgeForQuote($v['id']);
                 DB::table('invoices')->where('quote_id', $v['id'])->delete();
                 DB::table('delivery_notes')->where('quote_id', $v['id'])->delete();
                 DB::table('quotes')->where('id', $v['id'])->delete();
@@ -224,6 +241,9 @@ class ErpController extends Controller
                 'outcome_at' => $outcome ? now()->toIso8601String() : null,
                 'updated' => now()->toIso8601String(),
             ]);
+            if ($outcome === 'Won') {
+                $this->orders->ensureForQuote($q);
+            }
         }
         if ($action === 'customer') return $this->customer($request);
         if ($action === 'customer_delete') {
@@ -248,7 +268,7 @@ class ErpController extends Controller
                     $invoiceId = $existing->id;
                 } else {
                     $quote = DB::table('quotes')->where('id', $dn->quote_id)->first();
-                    $invoiceId = $this->generateInvoice($quote);
+                    $invoiceId = $this->documents->invoice($quote);
                 }
             }
             return response()->json(['ok' => true, 'invoiceId' => $invoiceId]);
@@ -474,16 +494,7 @@ class ErpController extends Controller
         $quote = DB::table('quotes')->where('id', $v['quoteId'])->first();
         $this->access->agent($request, $quote->agent);
         abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can have a delivery note.');
-        $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
-            'productId' => $l['productId'], 'name' => $l['name'], 'description' => $l['description'] ?? '', 'sku' => $l['sku'], 'quantity' => $l['quantity'],
-        ])->all();
-        $id = (string) Str::uuid();
-        DB::table('delivery_notes')->insert([
-            'id' => $id, 'quote_id' => $quote->id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
-            'customer' => $quote->customer, 'address' => $v['address'] ?? '', 'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
-            'notes' => $v['notes'] ?? '', 'status' => 'Draft',
-            'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
-        ]);
+        $id = $this->documents->deliveryNote($quote, $v['address'] ?? '', $v['notes'] ?? '');
         return response()->json(['id' => $id]);
     }
 
@@ -499,30 +510,8 @@ class ErpController extends Controller
         abort_unless($quote->status === 'Accepted', 422, 'Only an accepted quotation can be invoiced.');
         abort_unless(DB::table('delivery_notes')->where('quote_id', $quote->id)->exists(), 422, 'Create a delivery note before invoicing.');
         abort_if(DB::table('invoices')->where('quote_id', $quote->id)->exists(), 422, 'This quotation has already been invoiced.');
-        $id = $this->generateInvoice($quote, $v['dueDate'] ?? null, $v['notes'] ?? '');
+        $id = $this->documents->invoice($quote, $v['dueDate'] ?? null, $v['notes'] ?? '');
         return response()->json(['id' => $id]);
-    }
-
-    private function generateInvoice(object $quote, ?string $dueDate = null, string $notes = ''): string
-    {
-        $lines = collect(json_decode($quote->lines, true))->map(fn ($l) => [
-            'productId' => $l['productId'], 'name' => $l['name'], 'description' => $l['description'] ?? '', 'sku' => $l['sku'],
-            'quantity' => $l['quantity'], 'unitBaisa' => $l['unitBaisa'],
-        ])->all();
-        $subtotal = $quote->total;
-        $vat = (int) round($subtotal * config('erp.vat_rate'));
-        $total = $subtotal + $vat;
-        $id = (string) Str::uuid();
-        $poNumber = DB::table('delivery_notes')->where('quote_id', $quote->id)->value('po_number');
-        DB::table('invoices')->insert([
-            'id' => $id, 'quote_id' => $quote->id, 'customer_id' => $quote->customer_id, 'agent' => $quote->agent, 'company_id' => $quote->company_id,
-            'customer' => $quote->customer, 'email' => $quote->email, 'po_number' => $poNumber,
-            'lines' => json_encode($lines, JSON_THROW_ON_ERROR),
-            'subtotal' => $subtotal, 'vat_baisa' => $vat, 'total' => $total,
-            'status' => 'Draft', 'notes' => $notes, 'due_date' => $dueDate,
-            'created' => now()->toIso8601String(), 'updated' => now()->toIso8601String(),
-        ]);
-        return $id;
     }
 
     private function generateSku(): string
