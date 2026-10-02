@@ -8,6 +8,8 @@ use App\Http\Controllers\MockupController;
 use App\Http\Controllers\MessagingController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\ProspectController;
+use App\Http\Middleware\AuthenticateCaptureToken;
 
 Route::middleware('guest')->group(function () {
     Route::view('/login', 'login')->name('login');
@@ -33,4 +35,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/api/orders/{id}/advance', [OrderController::class, 'advance'])->middleware('throttle:30,1');
     Route::post('/api/orders/{id}/note', [OrderController::class, 'note'])->middleware('throttle:30,1');
     Route::get('/api/order-files/{id}', [OrderController::class, 'file']);
+    Route::post('/api/prospects', [ProspectController::class, 'store'])->middleware('throttle:60,1');
+    Route::post('/api/prospects/{id}', [ProspectController::class, 'update'])->middleware('throttle:60,1');
+    Route::post('/api/prospects/{id}/assign', [ProspectController::class, 'assign'])->middleware('throttle:60,1');
+    Route::post('/api/prospects/{id}/convert', [ProspectController::class, 'convert'])->middleware('throttle:30,1');
+    Route::post('/api/prospects/{id}/delete', [ProspectController::class, 'destroy'])->middleware('throttle:30,1');
+    Route::post('/api/capture-token', [ProspectController::class, 'createToken'])->middleware('throttle:10,1');
+    Route::post('/api/capture-token/revoke', [ProspectController::class, 'revokeToken'])->middleware('throttle:10,1');
+});
+
+// Chrome extension: personal bearer token instead of a browser session.
+Route::middleware([AuthenticateCaptureToken::class, 'throttle:120,1'])->group(function () {
+    Route::get('/api/capture/ping', [ProspectController::class, 'ping']);
+    Route::post('/api/capture/prospect', [ProspectController::class, 'capture']);
 });

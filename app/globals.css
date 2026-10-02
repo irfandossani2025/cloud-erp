@@ -1737,3 +1737,103 @@ th {
     display: none !important;
   }
 }
+
+/* Prospects */
+.prospect-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 16px;
+}
+.prospect-fields .field:last-child {
+  grid-column: 1 / -1;
+}
+.prospect-form {
+  margin: 16px 0;
+  display: grid;
+  gap: 12px;
+}
+.prospect-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 8px 0 4px;
+  font-size: 14px;
+}
+.prospect-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.prospect-filters {
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.prospect-filters input[type="search"] {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+  margin-left: auto;
+}
+.prospect-admin {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.prospect-admin h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.prospect-admin .actions {
+  flex-wrap: wrap;
+}
+.capture-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 24px;
+}
+.capture-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.capture-steps {
+  margin: 8px 0 12px 20px;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.capture-steps code {
+  background: #eef2f7;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.capture-token {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.capture-token input {
+  flex: 1;
+  min-width: 220px;
+  font-family: ui-monospace, monospace;
+}
+.agent-leads {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-left: 12px;
+  white-space: nowrap;
+}
+.agent-leads input {
+  width: auto;
+  margin: 0;
+}
+.block {
+  display: block;
+}

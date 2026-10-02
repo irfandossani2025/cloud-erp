@@ -28,7 +28,7 @@ class ErpController extends Controller
 
         $agents = DB::table('agents')
             ->leftJoin('users', 'users.agent_id', '=', 'agents.id')
-            ->select('agents.id', 'agents.name', 'users.email', 'users.role')
+            ->select('agents.id', 'agents.name', 'agents.takes_leads', 'users.email', 'users.role')
             ->orderBy('agents.name');
         $quotes = DB::table('quotes')->orderByDesc('number');
         $customers = DB::table('customers')->orderByDesc('updated');
@@ -70,6 +70,11 @@ class ErpController extends Controller
             });
         }
 
+        $prospects = DB::table('prospects')->orderByDesc('created');
+        if (!$isAdmin) {
+            $role === 'accounts' ? $prospects->whereRaw('1 = 0') : $prospects->where('agent', $agentId);
+        }
+
         $invoiceRows = $invoices->get();
         $invoiceIds = $invoiceRows->pluck('id');
         $orders = $orders->get();
@@ -81,6 +86,8 @@ class ErpController extends Controller
             ]);
 
         return response()->json([
+            'prospects' => $prospects->get(),
+            'captureTokenSet' => DB::table('capture_tokens')->where('user_id', $request->user()->id)->exists(),
             'orders' => $orders,
             'orderEvents' => $orderEvents,
             'invoiceReminders' => DB::table('invoice_reminders')->whereIn('invoice_id', $invoiceIds)->orderBy('sent_at')->get(['invoice_id', 'days_before', 'sent_to', 'sent_at']),
@@ -116,7 +123,7 @@ class ErpController extends Controller
     public function store(Request $request, SupplierCatalogue $supplier)
     {
         $action = $request->validate([
-            'action' => 'required|in:product,stock,agent,agent_password,agent_role,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
+            'action' => 'required|in:product,stock,agent,agent_password,agent_role,agent_takes_leads,settings,sync,quote,quote_price,quote_delete,status,quote_outcome,customer,customer_delete,customer_activity,delivery_note,delivery_note_status,delivery_note_update,invoice,invoice_delete,invoice_status,invoice_update,invoice_costs,invoice_payment,company_update,sales_goal',
         ])['action'];
         if (in_array($action, ['agent', 'settings', 'sync'])) $this->access->admin($request);
         if ($action === 'sync') return response()->json(['count' => $supplier->sync()]);
@@ -153,7 +160,7 @@ class ErpController extends Controller
             abort_if(!empty($v['role']) && empty($v['email']), 422, 'A role requires a sign-in email.');
             $id = DB::transaction(function () use ($v) {
                 $id = (string) Str::uuid();
-                DB::table('agents')->insert(['id' => $id, 'name' => $v['name']]);
+                DB::table('agents')->insert(['id' => $id, 'name' => $v['name'], 'takes_leads' => ($v['role'] ?? null) !== 'accounts']);
                 if (!empty($v['email'])) {
                     User::create(['name' => $v['name'], 'email' => $v['email'], 'password' => $v['password'], 'is_admin' => false, 'agent_id' => $id, 'role' => $v['role'] ?? null]);
                 }
@@ -182,6 +189,14 @@ class ErpController extends Controller
             abort_unless($user, 422, 'This sales agent does not have a sign-in login.');
             $user->role = $v['role'] ?? null;
             $user->save();
+            if (($v['role'] ?? null) === 'accounts') {
+                DB::table('agents')->where('id', $v['agentId'])->update(['takes_leads' => false]);
+            }
+        }
+        if ($action === 'agent_takes_leads') {
+            $this->access->admin($request);
+            $v = $request->validate(['agentId' => 'required|uuid|exists:agents,id', 'takesLeads' => 'required|boolean']);
+            DB::table('agents')->where('id', $v['agentId'])->update(['takes_leads' => $v['takesLeads']]);
         }
         if ($action === 'settings') {
             $v = $request->validate(['rate' => 'required|numeric|gt:0|max:100', 'company' => 'required|string|max:200', 'vatNumber' => 'nullable|string|max:50']);

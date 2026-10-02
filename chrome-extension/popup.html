@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cloud ERP</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header><strong>Cloud ERP</strong><span id="who"></span></header>
+
+  <section id="setup" hidden>
+    <p id="setupMsg">Connect the extension to your Cloud ERP account.</p>
+    <label>ERP address<input id="server" type="url" placeholder="https://clouderp.mugdiinvestments.com" autocomplete="off"></label>
+    <label>Your capture token<input id="token" type="password" placeholder="cep_…" autocomplete="off"></label>
+    <p class="hint">Create the token in the ERP: Prospects → Capture prospects from Chrome.</p>
+    <button id="connect" class="primary">Connect</button>
+  </section>
+
+  <section id="capture" hidden>
+    <p id="pageNote" class="hint"></p>
+    <label>Name<input id="name" maxlength="200"></label>
+    <label>Job title<input id="title" maxlength="200"></label>
+    <label>Company<input id="company" maxlength="200"></label>
+    <div class="row">
+      <label>Email<input id="email" type="email" maxlength="254"></label>
+      <label>Phone<input id="phone" maxlength="50"></label>
+    </div>
+    <label>Website<input id="website" maxlength="500"></label>
+    <label>Notes<textarea id="notes" rows="2" maxlength="5000"></textarea></label>
+    <label id="keepRow" class="check"><input id="keep" type="checkbox"> Keep this lead for me (skip the rotation)</label>
+    <button id="send" class="primary">Send to prospect inbox</button>
+    <p id="status" role="status"></p>
+    <button id="settings" class="link">Change connection</button>
+  </section>
+  <script src="popup.js"></script>
+</body>
+</html>

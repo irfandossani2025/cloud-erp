@@ -21,6 +21,7 @@ import {
   ImageIcon,
   Download,
   Printer,
+  UserPlus,
   Users,
   LogOut,
   Contact,
@@ -52,6 +53,7 @@ import {
 } from "lucide-react";
 import { request } from "./http";
 import OrdersPanel from "./OrdersPanel";
+import ProspectsPanel from "./ProspectsPanel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -106,14 +108,18 @@ import {
   type Order,
   type OrderEvent,
   type InvoiceReminder,
+  type Prospect,
 } from "@/lib/domain";
 type Agent = {
   id: string;
   name: string;
   email: string | null;
   role: string | null;
+  takes_leads?: boolean | number;
 };
 type State = {
+  prospects: Prospect[];
+  captureTokenSet: boolean;
   invoiceReminders: InvoiceReminder[];
   orders: Order[];
   orderEvents: OrderEvent[];
@@ -180,6 +186,8 @@ type ThreadMessage = {
   attachments: MessageAttachment[];
 };
 const initial: State = {
+  prospects: [],
+  captureTokenSet: false,
   invoiceReminders: [],
   orders: [],
   orderEvents: [],
@@ -322,7 +330,8 @@ export default function Home() {
       null,
     ),
     [viewInvoice, setViewInvoice] = useState<Invoice | null>(null),
-    [viewOrderId, setViewOrderId] = useState<string | null>(null);
+    [viewOrderId, setViewOrderId] = useState<string | null>(null),
+    [viewProspectId, setViewProspectId] = useState<string | null>(null);
   const [pricingQuote, setPricingQuote] = useState<Quote | null>(null),
     [pricingLines, setPricingLines] = useState<Record<string, number>>({});
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null),
@@ -717,7 +726,15 @@ export default function Home() {
     return { month: d.toLocaleDateString("en-OM", { month: "short" }), value: value / 1000 };
   });
   const myOverdueInvoices = invoiceList.filter(isOverdue);
+  const newProspects = data.prospects.filter(
+    (p) => p.agent === data.userAgentId && p.status === "new",
+  );
   const todoItems = [
+    {
+      count: newProspects.length,
+      label: "new prospect(s) to reach out to",
+      tab: "prospects",
+    },
     {
       count: quoteList.filter(
         (q) => q.status === "Draft" && q.pricing_status === "Priced",
@@ -1297,6 +1314,15 @@ export default function Home() {
             <FileText />
             Quotations
           </TabsTrigger>
+          {(data.isAdmin || data.userRole !== "accounts") && (
+            <TabsTrigger value="prospects">
+              <UserPlus />
+              Prospects
+              {newProspects.length > 0 && (
+                <span className="unread-dot">{newProspects.length}</span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="orders">
             <ClipboardList />
             Orders
@@ -2401,6 +2427,25 @@ export default function Home() {
               </section>
             </>
           )}
+        </TabsContent>
+        <TabsContent value="prospects">
+          <ProspectsPanel
+            prospects={data.prospects}
+            agents={data.agents}
+            isAdmin={data.isAdmin}
+            userAgentId={data.userAgentId}
+            captureTokenSet={data.captureTokenSet}
+            selectedId={viewProspectId}
+            onSelect={setViewProspectId}
+            agentName={agentName}
+            onRefresh={refresh}
+            onOpenCustomer={async (id) => {
+              const d = await refresh();
+              const c = d?.customers.find((x) => x.id === id);
+              if (c) setViewCustomer(c);
+              setTab("customers");
+            }}
+          />
         </TabsContent>
         <TabsContent value="orders">
           <OrdersPanel
@@ -4515,6 +4560,30 @@ export default function Home() {
                       </select>
                     ) : (
                       <span className="badge">No sign-in</span>
+                    )}
+                    {a.email && (
+                      <label className="agent-leads">
+                        <input
+                          type="checkbox"
+                          checked={!!a.takes_leads}
+                          disabled={!!busy}
+                          onChange={(e) =>
+                            void perform("agent-leads", async () => {
+                              await api("agent_takes_leads", {
+                                agentId: a.id,
+                                takesLeads: e.target.checked,
+                              });
+                              await refresh();
+                              toast.success(
+                                e.target.checked
+                                  ? `${a.name} now receives new leads`
+                                  : `${a.name} no longer receives new leads`,
+                              );
+                            })
+                          }
+                        />
+                        Receives leads
+                      </label>
                     )}
                     {a.email && (
                       <button

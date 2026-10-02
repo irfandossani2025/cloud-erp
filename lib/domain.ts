@@ -343,3 +343,32 @@ export type InvoiceReminder = {
   sent_to: string;
   sent_at: string;
 };
+
+export type ProspectStatus = "new" | "contacted" | "converted" | "not_a_fit";
+export const PROSPECT_STATUSES: { key: ProspectStatus; label: string }[] = [
+  { key: "new", label: "New" },
+  { key: "contacted", label: "Contacted" },
+  { key: "converted", label: "Customer" },
+  { key: "not_a_fit", label: "Not a fit" },
+];
+export type Prospect = {
+  id: string;
+  agent: string | null;
+  name: string;
+  title: string;
+  company: string;
+  email: string;
+  phone: string;
+  website: string;
+  linkedin_url: string;
+  location: string;
+  source_url: string;
+  source: "manual" | "extension";
+  notes: string | null;
+  status: ProspectStatus;
+  captured_by: string;
+  customer_id: string | null;
+  assigned_at: string | null;
+  created: string;
+  updated: string;
+};

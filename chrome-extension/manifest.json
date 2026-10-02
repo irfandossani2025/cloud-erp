@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Cloud ERP Prospect Capture",
+  "version": "1.0.0",
+  "description": "Send the page you are viewing to the Cloud ERP prospect inbox, one click at a time.",
+  "action": {
+    "default_title": "Send this page to Cloud ERP",
+    "default_popup": "popup.html"
+  },
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://clouderp.mugdiinvestments.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+}
